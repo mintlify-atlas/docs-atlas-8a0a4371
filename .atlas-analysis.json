@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "rathole",
+  "projectType": "cli-tool",
+  "projectName": "rathole",
+  "projectDescription": "A lightweight, high-performance reverse proxy for NAT traversal written in Rust, offering a secure alternative to frp and ngrok.",
   "theme": "aspen",
-  "colors": {
-    "primary": "#94cb04",
-    "light": "#545454"
-  },
-  "favicon": "https://media.brand.dev/288cc7c4-5cef-4376-950b-bdf0083eedae.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/rathole-org/rathole"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/rathole-org/rathole"
-    }
-  },
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
   "navigation": {
     "tabs": [
       {
@@ -81,5 +69,28 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "High-performance NAT traversal with significantly higher throughput than frp",
+    "Low resource consumption — binary as small as ~500KiB for embedded devices",
+    "Multiple transport security options: Noise Protocol, TLS (native-tls and rustls), and WebSocket",
+    "Per-service token authentication for secure, isolated service exposure",
+    "Hot reload support — add or remove services without restarting",
+    "TCP and UDP protocol forwarding",
+    "Proxy support (SOCKS5 and HTTP) for connecting through firewalls",
+    "Single binary that can run as both server and client"
+  ],
+  "publicApiSurface": [
+    "rathole <config.toml>",
+    "rathole --server <config.toml>",
+    "rathole --client <config.toml>",
+    "rathole --genkey [x25519|x448]",
+    "[client] TOML config block",
+    "[server] TOML config block",
+    "[client.services.<name>] TOML config block",
+    "[server.services.<name>] TOML config block",
+    "[client.transport] / [server.transport] TOML config block",
+    "transport.type: tcp | tls | noise | websocket",
+    "RUST_LOG environment variable for log level control"
+  ]
 }

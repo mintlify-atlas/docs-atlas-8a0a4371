@@ -1,0 +1,231 @@
+---
+title: "Services configuration"
+description: "Reference for per-service forwarding rules on both the client and server side, including TCP/UDP type, tokens, and address bindings."
+---
+
+Services are the core of rathole: each service defines one tunnel between a local address on the client and a public address on the server. Every service must be defined on both sides, with matching names and tokens.
+
+<Note>
+  Service names are arbitrary strings. The name in `[client.services.<name>]` must exactly match the name in `[server.services.<name>]`.
+</Note>
+
+## Client services
+
+Define services under `[client.services.<name>]`. Each entry tells the client which local address to forward to the server.
+
+<ParamField path="local_addr" type="string" required>
+  The local address of the service to forward. Traffic arriving at the server's exposed port will be sent here.
+
+  ```toml
+  local_addr = "127.0.0.1:22"
+  ```
+</ParamField>
+
+<ParamField path="token" type="string">
+  The authentication token for this service. Must match the token defined in the server's corresponding service entry.
+
+  Required if `client.default_token` is not set. If both are set, the service-level token takes precedence.
+
+  ```toml
+  token = "use_a_secret_that_only_you_know"
+  ```
+</ParamField>
+
+<ParamField path="type" type="string" default="tcp">
+  The protocol to forward. Must match the server-side service `type`.
+
+  Accepted values: `"tcp"`, `"udp"`.
+
+  ```toml
+  type = "udp"
+  ```
+</ParamField>
+
+<ParamField path="nodelay" type="boolean">
+  Override the `TCP_NODELAY` setting for this specific service, overriding the global `[client.transport.tcp].nodelay` value. Has no effect on UDP services.
+
+  ```toml
+  nodelay = false
+  ```
+</ParamField>
+
+<ParamField path="retry_interval" type="integer">
+  Seconds between reconnection attempts for this service. Overrides the global `client.retry_interval` value when set.
+
+  ```toml
+  retry_interval = 3
+  ```
+</ParamField>
+
+<ParamField path="prefer_ipv6" type="boolean" default="false">
+  Prefer IPv6 when resolving the `local_addr` hostname. Overrides the client-level `prefer_ipv6` setting for this service only.
+
+  ```toml
+  prefer_ipv6 = false
+  ```
+</ParamField>
+
+## Server services
+
+Define services under `[server.services.<name>]`. Each entry tells the server where to expose the tunnel publicly.
+
+<ParamField path="bind_addr" type="string" required>
+  The address and port to expose this service on. Incoming connections here are forwarded to the client's `local_addr`.
+
+  ```toml
+  bind_addr = "0.0.0.0:5202"
+  ```
+</ParamField>
+
+<ParamField path="token" type="string">
+  The authentication token clients must present to use this service.
+
+  Required if `server.default_token` is not set. If both are set, the service-level token takes precedence.
+
+  ```toml
+  token = "use_a_secret_that_only_you_know"
+  ```
+</ParamField>
+
+<ParamField path="type" type="string" default="tcp">
+  The protocol to forward. Must match the client-side service `type`.
+
+  Accepted values: `"tcp"`, `"udp"`.
+
+  ```toml
+  type = "udp"
+  ```
+</ParamField>
+
+<ParamField path="nodelay" type="boolean">
+  Override the `TCP_NODELAY` setting for this specific service. Has no effect on UDP services.
+
+  ```toml
+  nodelay = false
+  ```
+</ParamField>
+
+## Examples
+
+### Multiple TCP services
+
+<Tabs>
+  <Tab title="Client">
+    ```toml client.toml
+    [client]
+    remote_addr = "example.com:2333"
+
+    [client.services.my_nas_ssh]
+    token = "ssh_secret"
+    local_addr = "127.0.0.1:22"
+
+    [client.services.my_nas_http]
+    token = "http_secret"
+    local_addr = "127.0.0.1:80"
+
+    [client.services.my_nas_rdp]
+    token = "rdp_secret"
+    local_addr = "127.0.0.1:3389"
+    nodelay = true
+    ```
+  </Tab>
+  <Tab title="Server">
+    ```toml server.toml
+    [server]
+    bind_addr = "0.0.0.0:2333"
+
+    [server.services.my_nas_ssh]
+    token = "ssh_secret"
+    bind_addr = "0.0.0.0:5222"
+
+    [server.services.my_nas_http]
+    token = "http_secret"
+    bind_addr = "0.0.0.0:5280"
+
+    [server.services.my_nas_rdp]
+    token = "rdp_secret"
+    bind_addr = "0.0.0.0:5389"
+    ```
+  </Tab>
+</Tabs>
+
+### UDP service
+
+UDP forwarding is supported for services like DNS or game servers. Set `type = "udp"` on both sides.
+
+<Tabs>
+  <Tab title="Client">
+    ```toml client.toml
+    [client]
+    remote_addr = "example.com:2333"
+
+    [client.services.my_dns]
+    type = "udp"
+    token = "dns_secret"
+    local_addr = "127.0.0.1:53"
+    ```
+  </Tab>
+  <Tab title="Server">
+    ```toml server.toml
+    [server]
+    bind_addr = "0.0.0.0:2333"
+
+    [server.services.my_dns]
+    type = "udp"
+    token = "dns_secret"
+    bind_addr = "0.0.0.0:5353"
+    ```
+  </Tab>
+</Tabs>
+
+### Using `default_token`
+
+When all services share a single token, you can set `default_token` on the `[client]` and `[server]` blocks and omit `token` from each service definition.
+
+<Tabs>
+  <Tab title="Client">
+    ```toml client.toml
+    [client]
+    remote_addr = "example.com:2333"
+    default_token = "shared_secret"
+
+    [client.services.ssh]
+    local_addr = "127.0.0.1:22"
+
+    [client.services.http]
+    local_addr = "127.0.0.1:80"
+    ```
+  </Tab>
+  <Tab title="Server">
+    ```toml server.toml
+    [server]
+    bind_addr = "0.0.0.0:2333"
+    default_token = "shared_secret"
+
+    [server.services.ssh]
+    bind_addr = "0.0.0.0:5222"
+
+    [server.services.http]
+    bind_addr = "0.0.0.0:5280"
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  Service-level tokens always override `default_token`. You can mix both: use `default_token` for most services and set explicit tokens for sensitive ones.
+</Tip>
+
+### Per-service retry
+
+Override the global reconnect interval for an individual service that requires different retry behavior:
+
+```toml client.toml
+[client]
+remote_addr = "example.com:2333"
+retry_interval = 1
+
+[client.services.critical_service]
+token = "secret"
+local_addr = "127.0.0.1:8080"
+retry_interval = 5  # back off more slowly for this service
+```

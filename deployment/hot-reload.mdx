@@ -1,0 +1,122 @@
+---
+title: 'Hot reload'
+description: 'Add or remove services at runtime without restarting rathole by reloading the configuration file.'
+---
+
+Hot reload lets you modify the list of tunneled services while rathole is running. There is no downtime for existing services during a reload — only the added or removed services are affected.
+
+<Note>
+  Hot reload is powered by the `notify` Cargo feature, which is included in the
+  default build. Binaries downloaded from the [releases
+  page](https://github.com/rapiz1/rathole/releases) have it enabled.
+</Note>
+
+## How it works
+
+rathole watches its configuration file for changes using filesystem notifications (via the [`notify`](https://crates.io/crates/notify) crate). When a change is detected, it:
+
+1. Reads the updated config from disk.
+2. Computes the diff between the running config and the new config.
+3. Applies only the delta — adding new services and removing deleted ones.
+
+If the new config is invalid, rathole logs an error and continues running with the previous configuration unchanged.
+
+## Triggering a reload
+
+Reload is triggered automatically by filesystem change events. Simply save the configuration file — no signal or command is required:
+
+```bash
+# Open and edit the config, then save
+nano /etc/rathole/app1.toml
+
+# rathole detects the change automatically
+```
+
+rathole watches the **parent directory** of the config file using the platform's native filesystem notification mechanism (inotify on Linux, FSEvents on macOS, ReadDirectoryChangesW on Windows). Any modification event to the config file path triggers a reload.
+
+<Note>
+  rathole does not handle SIGHUP. The only way to trigger a reload is by modifying the config file on disk. To restart rathole under systemd, use `systemctl restart` rather than `systemctl reload`.
+</Note>
+
+## What can be changed at runtime
+
+| Change type | Hot reload | Requires restart |
+|---|---|---|
+| Add a new service | Yes | No |
+| Remove an existing service | Yes | No |
+| Modify a service's `token` or `local_addr` | Yes (treated as delete + add) | No |
+| Change `bind_addr` or `remote_addr` at the top level | No | Yes |
+| Change transport settings (`tls`, `noise`, etc.) | No | Yes |
+| Switch between server and client mode | No | Yes |
+
+When a non-service field changes (such as `bind_addr` or any transport option), rathole triggers a full restart internally — equivalent to stopping and relaunching the process.
+
+<Warning>
+  Changing top-level connection settings like `bind_addr`, `remote_addr`, or
+  `transport` requires a full process restart. Hot reload cannot apply these
+  changes without briefly interrupting all active tunnels.
+</Warning>
+
+## Example workflow: adding a new service
+
+Suppose rathole is already running with the following server config and you want to expose an additional HTTP service:
+
+```toml server.toml — before
+[server]
+bind_addr = "0.0.0.0:2333"
+
+[server.services.my_nas_ssh]
+token = "ssh_token"
+bind_addr = "0.0.0.0:5202"
+```
+
+Add the new service block and save the file:
+
+```toml server.toml — after
+[server]
+bind_addr = "0.0.0.0:2333"
+
+[server.services.my_nas_ssh]
+token = "ssh_token"
+bind_addr = "0.0.0.0:5202"
+
+[server.services.my_nas_http]
+token = "http_token"
+bind_addr = "0.0.0.0:8080"
+```
+
+rathole logs the change and starts accepting connections for `my_nas_http` immediately:
+
+```
+INFO rathole: Rescan the configuration
+INFO rathole: Start watching the config
+```
+
+On the client side, update `client.toml` the same way to add the corresponding `[client.services.my_nas_http]` block.
+
+## The `notify` feature flag
+
+Hot reload depends on the `notify` Cargo feature. When building from source, it is included in the `default` feature set. You can verify this by checking `Cargo.toml`:
+
+```bash
+# Build with hot reload (default)
+cargo build --release
+
+# Build without hot reload (smaller binary, useful for constrained devices)
+cargo build --release --no-default-features
+```
+
+If rathole is compiled without `notify`, the config watcher starts but does nothing — the process must be restarted manually to pick up config changes.
+
+<Tip>
+  Omitting the `notify` feature reduces binary size, which can matter on
+  embedded devices or routers. See the [build
+  guide](https://github.com/rapiz1/rathole/blob/main/docs/build-guide.md) for
+  more details on minimizing the binary.
+</Tip>
+
+## Caveats
+
+- If you write a config file that is temporarily invalid (e.g., mid-edit), rathole logs an error and skips the reload. The running configuration is not affected.
+- rathole watches the **parent directory** of the config file (non-recursively), so symlinked config files are supported as long as the symlink itself changes when the target is updated.
+- Hot reload applies to both the server and client sides independently. Each process watches its own config file.

@@ -1,0 +1,145 @@
+---
+title: "Internals"
+description: "How rathole works under the hood: concepts, channel types, and the connection lifecycle."
+---
+
+This page explains the internal architecture of rathole for contributors and curious users who want to understand what happens when you run `rathole config.toml`.
+
+## Concepts
+
+<AccordionGroup>
+  <Accordion title="Service">
+    A **service** is the entity whose traffic needs to be forwarded — for example, an SSH daemon listening on port 22 or a web server on port 80. Each service has its own token, control channel, and data channel pool.
+  </Accordion>
+
+  <Accordion title="Server">
+    The **server** is the host that runs rathole in server mode. It must have a public IP address reachable from the internet. The server listens for incoming client connections on `server.bind_addr` and exposes each service on a dedicated `bind_addr` for visitors.
+  </Accordion>
+
+  <Accordion title="Client">
+    The **client** is the host behind the NAT that runs rathole in client mode. It has one or more services that need to be reachable from the internet. The client initiates all connections to the server — no inbound firewall rules are required on the client side.
+  </Accordion>
+
+  <Accordion title="Visitor">
+    A **visitor** is any external party that connects to a service via the server's exposed port. The visitor has no direct connection to the client — traffic is transparently forwarded by rathole.
+  </Accordion>
+
+  <Accordion title="Control channel">
+    A **control channel** is a persistent TCP connection between the server and the client, dedicated to a single service. It carries only rathole control commands — no user data flows through it. One control channel is maintained per service.
+  </Accordion>
+
+  <Accordion title="Data channel">
+    A **data channel** is a TCP connection between the server and the client that carries the actual forwarded traffic for one service. A new data channel is created (or taken from a pre-built pool) for each visitor connection.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Architecture overview
+
+```
+                  ┌─────────────────────────────────────────────┐
+                  │                  Server (public IP)          │
+  Visitor ──────▶ │  service bind_addr   server bind_addr        │
+                  │       ↕ data channel      ↕ control channel  │
+                  └─────────────────────────────────────────────┘
+                                                  ↑
+                                     TCP (client-initiated)
+                                                  ↑
+                  ┌─────────────────────────────────────────────┐
+                  │              Client (behind NAT)            │
+                  │       local service (e.g. 127.0.0.1:22)     │
+                  └─────────────────────────────────────────────┘
+```
+
+The client is always the TCP initiator. This means NAT traversal requires no special configuration on the client's router or firewall.
+
+---
+
+## Connection lifecycle
+
+<Steps>
+  <Step title="Control channels are established">
+    When rathole starts in client mode, it opens one TCP connection to `server.bind_addr` for **each configured service**. These connections become the control channels.
+  </Step>
+
+  <Step title="Authentication handshake">
+    The server challenges the client with a random nonce. The client responds by authenticating as the service it represents, using the service's token. This nonce-based challenge/response prevents replay attacks — a captured authentication message cannot be reused.
+  </Step>
+
+  <Step title="A visitor connects">
+    When a visitor connects to a service's exposed port on the server, the server sends a control command through the corresponding control channel, notifying the client that a new data channel is needed.
+  </Step>
+
+  <Step title="Data channel is opened">
+    The client receives the control command and opens a new TCP connection to the server. This becomes the data channel for that visitor session.
+  </Step>
+
+  <Step title="Traffic is forwarded">
+    The server bridges the visitor's connection to the new data channel. The client bridges the data channel to the local service address. From this point, traffic flows bidirectionally through the data channel.
+  </Step>
+</Steps>
+
+---
+
+## Data channel pool
+
+Opening a fresh TCP connection for every visitor adds latency. To reduce this, the server pre-creates a small pool of data channels in advance. When a visitor arrives, a pooled channel is immediately available.
+
+<Tip>
+  The pool means the first byte of user traffic is forwarded faster than the raw TCP handshake RTT would otherwise allow.
+</Tip>
+
+---
+
+## Transport layers
+
+All channel traffic — both control and data — travels over the configured transport. The available transports are:
+
+| Transport | Description |
+|---|---|
+| `tcp` | Plain TCP. No encryption. Default. |
+| `tls` | TCP wrapped in TLS using a PKCS#12 certificate on the server and a trusted CA root on the client. |
+| `noise` | TCP wrapped in the [Noise Protocol](https://noiseprotocol.org/). No certificates needed — uses raw keypairs. Default pattern: `Noise_NK_25519_ChaChaPoly_BLAKE2s`. |
+| `websocket` | TCP wrapped in WebSocket framing, optionally with TLS. Useful for traversing proxies that only permit HTTP(S) traffic. |
+
+<Note>
+  TLS and Noise transport encrypt all rathole traffic, including the control channel authentication exchange. Plain `tcp` transport still uses nonce-based token authentication, but the token and traffic are not encrypted in transit.
+</Note>
+
+---
+
+## Transport implementation
+
+Each transport implements the `Transport` trait defined in `src/transport/mod.rs`:
+
+```rust
+pub trait Transport: Debug + Send + Sync {
+    async fn bind(&self, addr: T) -> Result<Self::Acceptor>;
+    async fn accept(&self, a: &Self::Acceptor) -> Result<(Self::RawStream, SocketAddr)>;
+    async fn handshake(&self, conn: Self::RawStream) -> Result<Self::Stream>;
+    async fn connect(&self, addr: &AddrMaybeCached) -> Result<Self::Stream>;
+    fn hint(conn: &Self::Stream, opts: SocketOpts);
+}
+```
+
+Transport implementations live in `src/transport/`:
+
+| File | Transport |
+|---|---|
+| `tcp.rs` | `TcpTransport` |
+| `native_tls.rs` / `rustls.rs` | `TlsTransport` (feature-gated) |
+| `noise.rs` | `NoiseTransport` (feature-gated: `noise`) |
+| `websocket.rs` | `WebsocketTransport` (feature-gated: `websocket-native-tls` or `websocket-rustls`) |
+
+Noise transport is implemented using the [`snowstorm`](https://github.com/black-binary/snowstorm) crate, which wraps the `snow` Noise Protocol library. The `handshake` method performs the full Noise handshake before returning the encrypted stream.
+
+---
+
+## Configuration hot reload
+
+rathole supports hot-reloading the configuration file. When the file changes on disk, services can be added or removed without restarting the process. Existing connections are not interrupted when a service is removed — they are drained gracefully.
+
+<Warning>
+  Hot reload applies to service definitions. Changes to `transport` type or `bind_addr` at the top level require a full restart.
+</Warning>

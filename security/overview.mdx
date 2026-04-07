@@ -1,0 +1,107 @@
+---
+title: "Security & Transport Overview"
+description: "Learn how rathole secures tunnel traffic using TCP, Noise Protocol, or TLS transports, and how token authentication works."
+---
+
+By default, rathole forwards traffic as-is. The control channel between client and server is always authenticated using tokens, but the tunneled traffic itself is plaintext TCP or UDP unless you configure a secure transport.
+
+## Transport types
+
+Rathole supports four transport types, configured via `type` under `[client.transport]` or `[server.transport]`:
+
+| Transport | Encryption | Authentication | Certificate required |
+|-----------|-----------|----------------|----------------------|
+| `tcp` | None | Token only | No |
+| `noise` | ChaCha20-Poly1305 | Configurable (NK, XX, KK) | No (keypair) |
+| `tls` | TLS | Certificate-based | Yes (PKCS#12) |
+| `websocket` | Optional (via TLS) | Token only | No (or TLS cert) |
+
+The default transport is `tcp`.
+
+## Token authentication
+
+Every service requires a token regardless of which transport is used. Tokens are defined per-service or as a `default_token` that applies to all services.
+
+```toml
+# Server
+[server]
+bind_addr = "0.0.0.0:2333"
+default_token = "your-secret-token"
+
+[server.services.my_service]
+bind_addr = "0.0.0.0:8080"
+# token = "per-service-token"  # overrides default_token
+
+# Client
+[client]
+remote_addr = "example.com:2333"
+default_token = "your-secret-token"
+
+[client.services.my_service]
+local_addr = "127.0.0.1:8080"
+```
+
+<Warning>
+Token authentication alone does not encrypt traffic. Without a secure transport, tokens are transmitted in plaintext and the tunnel payload is visible on the network.
+</Warning>
+
+## Choosing a transport
+
+<AccordionGroup>
+  <Accordion title="TCP (default) — no encryption">
+    The default transport. Use it when:
+    - The tunnel runs on a trusted private network
+    - You need maximum throughput with minimal overhead
+    - Encryption is handled at another layer (e.g. WireGuard, IPsec)
+
+    No additional configuration is required beyond setting tokens.
+  </Accordion>
+
+  <Accordion title="Noise Protocol — easy, no certificates needed">
+    The Noise Protocol provides authenticated encryption without requiring a certificate authority or PKCS#12 files. You generate a keypair with a single command and reference the keys in the config.
+
+    The default pattern `Noise_NK_25519_ChaChaPoly_BLAKE2s` authenticates the server to the client, preventing man-in-the-middle attacks — similar to TLS with a properly configured certificate.
+
+    Use Noise when:
+    - You want encryption without managing certificates
+    - You are setting up a new tunnel and want the simplest secure option
+    - You need bidirectional authentication (use the KK pattern)
+
+    See the [Noise Protocol guide](/security/noise-protocol) for full setup instructions.
+  </Accordion>
+
+  <Accordion title="TLS — standard certificate-based encryption">
+    TLS uses PKCS#12 archives on the server and a trusted root CA certificate on the client. It integrates naturally with existing certificate infrastructure.
+
+    Use TLS when:
+    - You already manage certificates (e.g. Let's Encrypt, internal CA)
+    - You need compatibility with standard TLS tooling
+    - Your organization requires certificate-based authentication
+
+    See the [TLS guide](/security/tls) for full setup instructions.
+  </Accordion>
+
+  <Accordion title="WebSocket — HTTP-compatible tunneling">
+    The WebSocket transport wraps the tunnel in a WebSocket connection, useful for traversing HTTP proxies or load balancers that do not pass raw TCP.
+
+    TLS can be layered on top of WebSocket by setting `tls = true` in `[client.transport.websocket]` / `[server.transport.websocket]`.
+
+    ```toml
+    [client.transport]
+    type = "websocket"
+    [client.transport.websocket]
+    tls = false
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Noise Protocol" icon="shield" href="/security/noise-protocol">
+    Set up encrypted tunnels with keypair authentication — no certificates required.
+  </Card>
+  <Card title="TLS" icon="lock" href="/security/tls">
+    Configure TLS with PKCS#12 archives and a trusted CA certificate.
+  </Card>
+</CardGroup>

@@ -1,97 +1,82 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "rathole"
+description: "A lightweight, high-performance reverse proxy for NAT traversal, written in Rust. Expose services behind NAT to the Internet securely and efficiently."
 ---
 
-## Setting up
+rathole lets you expose services running on devices behind NAT (like a home server, NAS, or Raspberry Pi) to the Internet through a server with a public IP — similar to frp and ngrok, but with significantly higher throughput and lower resource usage.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up your first tunnel in minutes with a server and client config
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Installation" icon="download" href="/installation">
+    Download pre-built binaries, use Docker, or build from source
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Configuration" icon="sliders" href="/configuration/overview">
+    Full reference for client, server, transport, and service options
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Security & Transport" icon="shield" href="/security/overview">
+    Protect traffic with Noise Protocol or TLS encryption
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Why rathole?
 
-Everything you need to create world-class documentation.
+rathole is built for performance and simplicity. It handles high connection volumes with minimal memory and CPU overhead — making it ideal for resource-constrained devices like routers and embedded systems.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="High performance" icon="gauge-high">
+    Handles more connections and higher bandwidth than frp at similar latency
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Small footprint" icon="microchip">
+    Binary as small as ~500KiB — suitable for embedded devices and routers
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Strong security" icon="lock">
+    Noise Protocol and TLS options with mandatory per-service token auth
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Hot reload" icon="arrows-rotate">
+    Add or remove services dynamically without restarting rathole
   </Card>
-</Columns>
+  <Card title="TCP & UDP" icon="network-wired">
+    Forward both TCP and UDP traffic across your services
+  </Card>
+  <Card title="Proxy support" icon="route">
+    Connect through SOCKS5 or HTTP proxies to reach your server
+  </Card>
+</CardGroup>
 
-## Need inspiration?
+## How it works
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+rathole runs on two sides: a **server** (public IP) and a **client** (behind NAT). The client connects to the server and establishes tunnels for each service. Visitors connect to the server's exposed port, and traffic is forwarded through the tunnel to the client's local service.
+
+<Steps>
+  <Step title="Deploy a server">
+    Run rathole in server mode on any machine with a public IP address
+  </Step>
+  <Step title="Configure services">
+    Define which ports to expose on the server for each service
+  </Step>
+  <Step title="Connect a client">
+    Run rathole in client mode on your NAT device, pointing to each local service
+  </Step>
+  <Step title="Traffic flows">
+    Visitors connect to the server port — traffic is securely forwarded to your local service
+  </Step>
+</Steps>
+
+## Explore the docs
+
+<CardGroup cols={2}>
+  <Card title="Deployment guide" icon="server" href="/deployment/docker">
+    Run rathole with Docker or as a systemd service
+  </Card>
+  <Card title="Noise Protocol" icon="wave-sine" href="/security/noise-protocol">
+    Lightweight encryption without certificates
+  </Card>
+  <Card title="Build from source" icon="hammer" href="/guides/build-from-source">
+    Build rathole for any platform or minimize the binary size
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/reference/cli">
+    Full command-line flags and options
+  </Card>
+</CardGroup>

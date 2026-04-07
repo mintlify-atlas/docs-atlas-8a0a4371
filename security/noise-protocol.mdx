@@ -1,0 +1,187 @@
+---
+title: "Noise Protocol"
+description: "Secure rathole tunnels with the Noise Protocol — lightweight authenticated encryption using keypairs, no certificates required."
+---
+
+The [Noise Protocol](http://noiseprotocol.org/noise.html) is a lightweight, easy-to-configure alternative to TLS. It requires no certificate authority, no PKCS#12 files, and no CSR workflow — just a keypair generated with a single command.
+
+## Default pattern
+
+Rathole uses `Noise_NK_25519_ChaChaPoly_BLAKE2s` by default. This pattern:
+
+- Authenticates the **server** to the client (the client verifies the server's identity)
+- Keeps the **client anonymous** to the server
+- Prevents man-in-the-middle attacks, just like TLS with a properly configured certificate
+- Encrypts all traffic with ChaCha20-Poly1305
+
+## Quickstart
+
+<Steps>
+  <Step title="Generate a keypair">
+    Run `rathole --genkey` to generate an X25519 keypair:
+
+    ```bash
+    $ rathole --genkey
+    Private Key:
+    cQ/vwIqNPJZmuM/OikglzBo/+jlYGrOt9i0k5h5vn1Q=
+
+    Public Key:
+    GQYTKSbWLBUSZiGfdWPSgek9yoOuaiwGD/GIX8Z1kkE=
+    ```
+
+    <Warning>
+      Never use a keypair copied from documentation or the internet, including the example above. Always generate your own.
+    </Warning>
+  </Step>
+
+  <Step title="Configure the server">
+    The server keeps the **private key** to identify itself:
+
+    ```toml
+    [server]
+    bind_addr = "0.0.0.0:2333"
+    default_token = "your-secret-token"
+
+    [server.transport]
+    type = "noise"
+    [server.transport.noise]
+    local_private_key = "QLYMByBnjgM254zT6YKaBVvuAA61swyZfFxoA/SKZHM="
+
+    [server.services.foo1]
+    bind_addr = "0.0.0.0:5202"
+    ```
+  </Step>
+
+  <Step title="Configure the client">
+    The client uses the server's **public key** to verify the server's identity:
+
+    ```toml
+    [client]
+    remote_addr = "localhost:2333"
+    default_token = "your-secret-token"
+
+    [client.transport]
+    type = "noise"
+    [client.transport.noise]
+    remote_public_key = "xrpknQcAagcd/b9foMwxSCD+EindWxq450NEONk8XQo="
+
+    [client.services.foo1]
+    local_addr = "127.0.0.1:80"
+    ```
+
+    <Note>
+      The `remote_public_key` on the client corresponds to the server's public key — the counterpart to the `local_private_key` on the server.
+    </Note>
+  </Step>
+</Steps>
+
+## Noise patterns
+
+Rathole supports three fundamental Noise handshake patterns. Choose based on your authentication requirements.
+
+<Tabs>
+  <Tab title="NK (default) — server authentication">
+    The server authenticates itself to the client. The client remains anonymous. This is the most common pattern and the rathole default.
+
+    - Server requires: `local_private_key`
+    - Client requires: `remote_public_key` (the server's public key)
+    - MITM protection: yes (client verifies server)
+
+    ```toml
+    # Server
+    [server.transport]
+    type = "noise"
+    [server.transport.noise]
+    local_private_key = "server-private-key-here"
+
+    # Client
+    [client.transport]
+    type = "noise"
+    [client.transport.noise]
+    remote_public_key = "server-public-key-here"
+    ```
+
+    The `pattern` field can be omitted — `Noise_NK_25519_ChaChaPoly_BLAKE2s` is the default.
+  </Tab>
+
+  <Tab title="XX — encryption only, no authentication">
+    Both sides generate ephemeral keys. No static keys are configured. Traffic is encrypted, but neither side authenticates the other.
+
+    - Server requires: nothing (no static keys)
+    - Client requires: nothing (no static keys)
+    - MITM protection: **no** — vulnerable to man-in-the-middle attacks
+
+    Use this pattern only when MITM is not a concern and you want the simplest possible encrypted transport.
+
+    ```toml
+    # Server
+    [server.transport]
+    type = "noise"
+    [server.transport.noise]
+    pattern = "Noise_XX_25519_ChaChaPoly_BLAKE2s"
+
+    # Client
+    [client.transport]
+    type = "noise"
+    [client.transport.noise]
+    pattern = "Noise_XX_25519_ChaChaPoly_BLAKE2s"
+    ```
+
+    <Warning>
+      The XX pattern provides no authentication. An attacker on the network path can intercept and modify traffic. Do not use it on untrusted networks unless you have another mechanism to prevent MITM.
+    </Warning>
+  </Tab>
+
+  <Tab title="KK — bidirectional authentication">
+    Both sides authenticate each other. Each side has its own keypair and knows the other's public key.
+
+    - Server requires: `local_private_key`, `remote_public_key` (client's public key)
+    - Client requires: `local_private_key`, `remote_public_key` (server's public key)
+    - MITM protection: yes (both sides verified)
+
+    Generate a separate keypair for each side with `rathole --genkey`.
+
+    ```toml
+    # Server
+    [server.transport]
+    type = "noise"
+    [server.transport.noise]
+    pattern = "Noise_KK_25519_ChaChaPoly_BLAKE2s"
+    local_private_key = "server-priv-key-here"
+    remote_public_key = "client-pub-key-here"
+
+    # Client
+    [client.transport]
+    type = "noise"
+    [client.transport.noise]
+    pattern = "Noise_KK_25519_ChaChaPoly_BLAKE2s"
+    local_private_key = "client-priv-key-here"
+    remote_public_key = "server-pub-key-here"
+    ```
+
+    <Tip>
+      KK is the strongest authentication option available. Use it when you need to ensure both the server and client are authentic — for example, in high-security environments or when the client's identity must be verified.
+    </Tip>
+  </Tab>
+</Tabs>
+
+## Configuration reference
+
+The `[*.transport.noise]` section supports the following fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `pattern` | No | Noise protocol pattern string. Defaults to `Noise_NK_25519_ChaChaPoly_BLAKE2s`. |
+| `local_private_key` | Depends on pattern | Base64-encoded X25519 private key for this side. Required for NK (server), KK (both). |
+| `remote_public_key` | Depends on pattern | Base64-encoded X25519 public key of the remote side. Required for NK (client), KK (both). |
+
+<Note>
+PSK (pre-shared key) modifiers are not currently supported. Open an issue on the rathole repository if you need PSK support.
+</Note>
+
+## Further reading
+
+For a complete list of Noise patterns and protocol name modifiers, refer to the official Noise Protocol specification:
+
+- [7.5. Interactive handshake patterns (fundamental)](https://noiseprotocol.org/noise.html#interactive-handshake-patterns-fundamental)
+- [8. Protocol names and modifiers](https://noiseprotocol.org/noise.html#protocol-names-and-modifiers)

@@ -1,0 +1,110 @@
+---
+title: "Configuration overview"
+description: "Learn how rathole's TOML configuration file works, including auto-detection, hot reload, and the full structure of available blocks."
+---
+
+rathole uses a single [TOML](https://toml.io) file for all configuration. The file can define a client, a server, or both — and rathole will figure out which mode to run in automatically.
+
+## Auto-detection
+
+If only a `[client]` block is present, rathole runs as a client. If only a `[server]` block is present, it runs as a server. You don't need any flags in the common case.
+
+```toml client.toml
+[client]
+remote_addr = "example.com:2333"
+
+[client.services.my_service]
+token = "secret"
+local_addr = "127.0.0.1:22"
+```
+
+```toml server.toml
+[server]
+bind_addr = "0.0.0.0:2333"
+
+[server.services.my_service]
+token = "secret"
+bind_addr = "0.0.0.0:5202"
+```
+
+## Unified config file
+
+You can place both `[client]` and `[server]` blocks in a single file and use flags to choose the mode at runtime:
+
+```bash
+./rathole --server config.toml
+./rathole --client config.toml
+```
+
+This is useful when managing both sides of a tunnel from one repository or deployment.
+
+```toml config.toml
+[client]
+remote_addr = "example.com:2333"
+
+[client.services.my_nas_ssh]
+token = "use_a_secret_that_only_you_know"
+local_addr = "127.0.0.1:22"
+
+[server]
+bind_addr = "0.0.0.0:2333"
+
+[server.services.my_nas_ssh]
+token = "use_a_secret_that_only_you_know"
+bind_addr = "0.0.0.0:5202"
+```
+
+## Hot reload
+
+rathole watches the configuration file for changes. Services can be added or removed dynamically without restarting the process. Changes take effect as soon as the file is saved.
+
+<Tip>
+  Hot reload applies to the services list. Changes to top-level fields like `bind_addr` or transport settings require a restart.
+</Tip>
+
+## Configuration blocks
+
+A rathole config file is made up of four top-level sections:
+
+| Block | Description |
+|---|---|
+| `[client]` | Client connection settings (remote address, heartbeat, retry) |
+| `[server]` | Server listener settings (bind address, heartbeat interval) |
+| `[client.transport]` / `[server.transport]` | Transport layer: TCP, TLS, Noise Protocol, or WebSocket |
+| `[client.services.*]` / `[server.services.*]` | Per-service forwarding rules and tokens |
+
+## Logging
+
+rathole uses the `RUST_LOG` environment variable to control log verbosity. The default level is `info`.
+
+```bash
+RUST_LOG=error ./rathole config.toml
+```
+
+Available levels, from least to most verbose:
+
+| Level | Description |
+|---|---|
+| `error` | Only critical failures |
+| `warn` | Warnings and errors |
+| `info` | Normal operational output (default) |
+| `debug` | Internal state and decisions |
+| `trace` | Full low-level event tracing |
+
+<Note>
+  `trace` produces a large amount of output and is only useful when debugging transport or connection issues.
+</Note>
+
+## Full reference
+
+<CardGroup cols={3}>
+  <Card title="Client config" icon="laptop" href="/configuration/client">
+    `[client]` block fields, transport options, and TCP tuning.
+  </Card>
+  <Card title="Server config" icon="server" href="/configuration/server">
+    `[server]` block fields, TLS setup, and Noise Protocol keys.
+  </Card>
+  <Card title="Services config" icon="arrow-right-arrow-left" href="/configuration/services">
+    Per-service forwarding rules for both client and server sides.
+  </Card>
+</CardGroup>

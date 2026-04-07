@@ -1,0 +1,107 @@
+---
+title: 'Use a proxy'
+description: 'Route rathole client connections through a SOCKS5 or HTTP proxy when the client cannot reach the server directly.'
+---
+
+In some network environments, the rathole client cannot open a direct TCP connection to the server. A common example is a corporate or institutional network where outbound connections are only permitted through a proxy.
+
+rathole supports routing its client-to-server connection through a **SOCKS5** or **HTTP** proxy.
+
+<Note>
+Proxy support applies only to the **client side**. The client uses the proxy to connect to the rathole server. The server itself does not use a proxy.
+</Note>
+
+## Configuration
+
+The proxy is configured in the `[client.transport.tcp]` block of the client configuration file. The transport type must be set to `tcp` (which is the default).
+
+```toml
+[client.transport]
+type = "tcp"
+
+[client.transport.tcp]
+proxy = "socks5://myuser:mypass@127.0.0.1:1080"
+```
+
+The `proxy` field accepts a URL in one of the following formats:
+
+| Proxy type | URL format |
+|---|---|
+| SOCKS5 | `socks5://username:password@host:port` |
+| HTTP | `http://username:password@host:port` |
+
+Credentials in the URL are optional. If your proxy does not require authentication, omit them:
+
+```toml
+proxy = "socks5://127.0.0.1:1080"
+```
+
+## Full example
+
+This is the complete example from `examples/use_proxy/client.toml`:
+
+```toml
+[client]
+remote_addr = "127.0.0.1:2333"
+default_token = "123"
+
+[client.services.foo1]
+local_addr = "127.0.0.1:80"
+
+[client.transport]
+type = "tcp"
+
+[client.transport.tcp]
+# Use socks5 proxy at 127.0.0.1, with port 1080, username 'myuser' and password 'mypass'
+proxy = "socks5://myuser:mypass@127.0.0.1:1080"
+# Use http proxy. Similar to socks5 proxy
+# proxy = "http://myuser:mypass@127.0.0.1:8080"
+```
+
+<Tabs>
+  <Tab title="SOCKS5 proxy">
+    ```toml
+    [client.transport]
+    type = "tcp"
+
+    [client.transport.tcp]
+    proxy = "socks5://myuser:mypass@127.0.0.1:1080"
+    ```
+  </Tab>
+  <Tab title="HTTP proxy">
+    ```toml
+    [client.transport]
+    type = "tcp"
+
+    [client.transport.tcp]
+    proxy = "http://myuser:mypass@127.0.0.1:8080"
+    ```
+  </Tab>
+  <Tab title="No authentication">
+    ```toml
+    [client.transport]
+    type = "tcp"
+
+    [client.transport.tcp]
+    proxy = "socks5://127.0.0.1:1080"
+    ```
+  </Tab>
+</Tabs>
+
+## Combining proxy with encryption
+
+The `proxy` setting controls how the client connects to the server. You can still use Noise Protocol or TLS encryption on top of the proxied connection by changing `[client.transport]` type:
+
+```toml
+[client.transport]
+type = "noise"          # or "tls"
+
+[client.transport.tcp]  # tcp settings apply to all transport types
+proxy = "socks5://127.0.0.1:1080"
+
+[client.transport.noise]
+pattern = "Noise_NK_25519_ChaChaPoly_BLAKE2s"
+remote_public_key = "key_encoded_in_base64"
+```
+
+The proxy handles the TCP tunnel; the chosen transport (Noise, TLS) is layered on top of it.

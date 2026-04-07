@@ -1,0 +1,126 @@
+---
+title: "CLI reference"
+description: "Complete reference for the rathole command-line interface."
+---
+
+## Synopsis
+
+```
+rathole [OPTIONS] <CONFIG | --genkey [CURVE]>
+```
+
+One of `CONFIG` or `--genkey` is required. They are mutually exclusive.
+
+## Arguments
+
+<ParamField path="CONFIG" type="path">
+  Path to the TOML configuration file. rathole automatically determines whether to run in server or client mode based on which top-level block (`[server]` or `[client]`) is present. If both blocks are present, use `--server` or `--client` to specify the mode explicitly.
+
+  Mutually exclusive with `--genkey`.
+</ParamField>
+
+## Options
+
+<ParamField query="--server" type="flag">
+  Force server mode. Use this when your configuration file contains both a `[server]` and a `[client]` block and you want to run the server side.
+
+  Short form: `-s`
+</ParamField>
+
+<ParamField query="--client" type="flag">
+  Force client mode. Use this when your configuration file contains both a `[server]` and a `[client]` block and you want to run the client side.
+
+  Short form: `-c`
+</ParamField>
+
+<ParamField query="--genkey" type="CURVE" optional>
+  Generate a keypair for the Noise Protocol and print it to stdout. The optional `CURVE` argument selects the Diffie-Hellman function.
+
+  Accepted values: `x25519` (default), `x448`
+
+  Mutually exclusive with `CONFIG`.
+</ParamField>
+
+<ParamField query="--version" type="flag">
+  Print version information and exit. The long form (`--version`) prints additional build metadata including the build timestamp, commit SHA, commit date, commit branch, cargo target triple, cargo profile, and compiled-in feature flags.
+</ParamField>
+
+<ParamField query="--help" type="flag">
+  Print help information and exit.
+
+  Short form: `-h`
+</ParamField>
+
+## Examples
+
+<Tabs>
+  <Tab title="Basic usage">
+    ```bash
+    # Auto-detect mode from config contents
+    ./rathole config.toml
+
+    # Explicitly run as server
+    ./rathole --server config.toml
+
+    # Explicitly run as client
+    ./rathole --client config.toml
+    ```
+  </Tab>
+  <Tab title="Key generation">
+    ```bash
+    # Generate an x25519 keypair (default curve)
+    ./rathole --genkey
+
+    # Explicitly request x25519
+    ./rathole --genkey x25519
+
+    # Generate an x448 keypair
+    ./rathole --genkey x448
+    ```
+
+    The output contains a `Private Key` and a `Public Key`, both Base64-encoded. Set `local_private_key` (using the private key value) on the server side and `remote_public_key` (using the server's public key value) on the client side in your `[transport.noise]` config block.
+  </Tab>
+  <Tab title="Version info">
+    ```bash
+    # Short version string
+    ./rathole --version
+
+    # Full build metadata (build timestamp, commit SHA, cargo target, features)
+    ./rathole -V
+    ```
+  </Tab>
+</Tabs>
+
+## Environment variables
+
+<ParamField query="RUST_LOG" type="string">
+  Controls the logging verbosity. rathole follows the standard Rust `env_logger` format.
+
+  Accepted values: `error`, `warn`, `info`, `debug`, `trace`
+
+  Default: `info`
+
+  ```bash
+  # Run with only error-level logs
+  RUST_LOG=error ./rathole config.toml
+
+  # Run with verbose debug output
+  RUST_LOG=debug ./rathole config.toml
+  ```
+</ParamField>
+
+<Note>
+  Module-level filtering is also supported. For example, `RUST_LOG=rathole=debug,tokio=warn` sets rathole to debug and tokio to warn level simultaneously.
+</Note>
+
+## Mode auto-detection
+
+When you pass a config file without `--server` or `--client`, rathole inspects the file:
+
+- If only `[server]` is present → server mode
+- If only `[client]` is present → client mode
+- If both are present → rathole exits with an error; you must specify `--server` or `--client`
+
+<Tip>
+  Keep server and client configuration in separate files to take advantage of auto-detection and avoid the need for explicit mode flags.
+</Tip>

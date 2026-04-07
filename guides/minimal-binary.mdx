@@ -1,0 +1,86 @@
+---
+title: 'Minimal binary'
+description: 'Reduce the rathole binary to ~574 KiB for embedded devices, routers, and other constrained environments.'
+---
+
+rathole can be compiled into a very small binary suitable for embedded devices, home routers, and other environments with tight storage constraints. The default `release` profile prioritizes runtime performance; this guide walks through the steps to prioritize binary size instead.
+
+The result for `x86_64-unknown-linux-gnu` at the time the build guide was written: **~574 KiB** — compared to ~10 MiB for frpc.
+
+## Steps
+
+<Steps>
+  <Step title="Build with the minimal profile">
+    The `minimal` Cargo profile inherits from `release` but sets `opt-level = "z"` (optimize for size) along with LTO and single codegen unit. Combined with `--no-default-features`, you can strip the binary down to only what you actually need.
+
+    To build a client-only binary with the minimal profile:
+
+    ```sh
+    cargo build --profile minimal --no-default-features --features client
+    ```
+
+    For embedded devices where TLS cross-compilation is difficult, use the `embedded` preset instead. It includes `server`, `client`, `hot-reload`, and `noise` — but no TLS:
+
+    ```sh
+    cargo build --profile minimal --no-default-features --features embedded
+    ```
+
+    The output is placed at `target/minimal/rathole`.
+
+    <Note>
+      The `minimal` profile is defined in `Cargo.toml` as inheriting from `release` with `opt-level = "z"`, `lto = true`, and `codegen-units = 1`. These settings trade compile time for the smallest possible output.
+    </Note>
+  </Step>
+
+  <Step title="Strip debug symbols">
+    Even after the minimal profile build, the binary may contain symbol tables. Strip them:
+
+    ```sh
+    strip rathole
+    ```
+
+    This removes debugging information without affecting runtime behavior.
+
+    <Warning>
+      Stripping makes crash backtraces and profiling much harder to interpret. Keep an unstripped copy if you need to diagnose issues later.
+    </Warning>
+  </Step>
+
+  <Step title="Compress with UPX">
+    [UPX](https://upx.github.io/) compresses the binary and adds a self-extracting stub. The binary decompresses itself in memory at startup.
+
+    ```sh
+    upx --best --lzma rathole
+    ```
+
+    `--best` enables maximum compression; `--lzma` uses the LZMA algorithm for the smallest possible output.
+
+    <Tip>
+      UPX compression increases startup time slightly because the binary must decompress itself before execution. For long-running daemon processes like rathole, this one-time cost is negligible.
+    </Tip>
+  </Step>
+</Steps>
+
+## Feature selection for size
+
+Only compile features you actually need. The more features you include, the larger the binary.
+
+| Goal | Recommended features |
+|---|---|
+| Client only, no encryption | `client` |
+| Client with Noise Protocol | `client,noise` |
+| Both modes, embedded-friendly | `embedded` (`server,client,hot-reload,noise`) |
+| Both modes, full TLS | `server,client,native-tls,noise,websocket-native-tls,hot-reload` |
+
+Avoid including `native-tls` or `rustls` when cross-compiling to embedded targets — use `noise` for encryption instead. The `embedded` preset exists precisely for this reason.
+
+## Size reference
+
+The following measurements are from the build guide, targeting `x86_64-unknown-linux-gnu`:
+
+| Tool | Binary size |
+|---|---|
+| rathole (minimal profile + strip + upx) | ~574 KiB |
+| frpc | ~10 MiB |
+
+Actual sizes will vary by target architecture, feature set, and toolchain version.

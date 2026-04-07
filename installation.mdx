@@ -1,0 +1,168 @@
+---
+title: 'Installation'
+description: 'Install rathole using a pre-built binary, Docker image, or by building from source.'
+---
+
+rathole is distributed as a single self-contained binary with no runtime dependencies. Choose the method that fits your environment.
+
+<Tabs>
+  <Tab title="Pre-built binary">
+    Pre-built binaries for common platforms are published on the [GitHub releases page](https://github.com/rapiz1/rathole/releases).
+
+    <Steps>
+      <Step title="Download the binary">
+        Visit the [releases page](https://github.com/rapiz1/rathole/releases) and download the archive for your platform. For example, on a 64-bit Linux host:
+
+        ```bash
+        curl -LO https://github.com/rapiz1/rathole/releases/latest/download/rathole-x86_64-unknown-linux-gnu.zip
+        unzip rathole-x86_64-unknown-linux-gnu.zip
+        ```
+
+        Available target triples include `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`, and others. Check the releases page for the full list.
+      </Step>
+
+      <Step title="Make the binary executable">
+        ```bash
+        chmod +x rathole
+        ```
+      </Step>
+
+      <Step title="Verify the installation">
+        ```bash
+        ./rathole --version
+        ```
+      </Step>
+    </Steps>
+
+    <Tip>
+      Move the binary to a directory on your `PATH` (e.g. `/usr/local/bin`) to run it as `rathole` without the `./` prefix.
+    </Tip>
+  </Tab>
+
+  <Tab title="Docker">
+    The official Docker image is published as [`rapiz1/rathole`](https://hub.docker.com/r/rapiz1/rathole) on Docker Hub.
+
+    <Steps>
+      <Step title="Pull the image">
+        ```bash
+        docker pull rapiz1/rathole
+        ```
+      </Step>
+
+      <Step title="Run as server">
+        Mount your `server.toml` into the container and expose the required ports:
+
+        ```bash
+        docker run --rm \
+          -v $(pwd)/server.toml:/app/server.toml \
+          -p 2333:2333 \
+          -p 5202:5202 \
+          rapiz1/rathole /app/server.toml
+        ```
+
+        Expose each port that your services need. In this example, `2333` is the control port and `5202` is the exposed service port defined in `server.toml`.
+      </Step>
+
+      <Step title="Run as client">
+        ```bash
+        docker run --rm \
+          -v $(pwd)/client.toml:/app/client.toml \
+          rapiz1/rathole /app/client.toml
+        ```
+
+        The client connects outbound to the server — no `-p` flag is required on the client container unless you need to expose ports locally.
+      </Step>
+    </Steps>
+
+    <Note>
+      The Docker image is built using a distroless base (`gcr.io/distroless/cc-debian12`) and runs as a non-root user (UID 1000). The rathole binary is the container entrypoint.
+    </Note>
+  </Tab>
+
+  <Tab title="Build from source">
+    Building from source gives you full control over features, target platforms, and binary size. You need [Rust](https://rustup.rs/) installed.
+
+    <Steps>
+      <Step title="Clone the repository">
+        ```bash
+        git clone https://github.com/rapiz1/rathole.git
+        cd rathole
+        ```
+      </Step>
+
+      <Step title="Build with the default feature set">
+        ```bash
+        cargo build --release
+        ```
+
+        The binary is written to `target/release/rathole`. The default build includes server mode, client mode, native TLS, Noise Protocol, WebSocket, and hot-reload support.
+      </Step>
+
+      <Step title="Run the binary">
+        ```bash
+        ./target/release/rathole --version
+        ```
+      </Step>
+    </Steps>
+
+    ### Feature flags
+
+    rathole uses Cargo feature flags to control which capabilities are compiled in. This lets you produce smaller binaries for constrained environments.
+
+    | Feature | Default | Description |
+    |---|---|---|
+    | `server` | Yes | Server mode support |
+    | `client` | Yes | Client mode support |
+    | `native-tls` | Yes | TLS via the platform's native TLS library |
+    | `rustls` | No | TLS via rustls (pure Rust) |
+    | `noise` | Yes | Noise Protocol encryption |
+    | `websocket-native-tls` | Yes | WebSocket transport with native TLS |
+    | `websocket-rustls` | No | WebSocket transport with rustls |
+    | `hot-reload` | Yes | Configuration hot-reload via file watching |
+    | `embedded` | No | Minimal preset for embedded devices (no TLS) |
+
+    ### Minimal binary for embedded devices
+
+    For routers and other embedded devices, use the `embedded` feature set. This omits TLS (which is difficult to cross-compile) while keeping server, client, hot-reload, and Noise Protocol:
+
+    ```bash
+    cargo build --release --no-default-features --features embedded
+    ```
+
+    With additional size optimizations from the `minimal` Cargo profile, the resulting binary can be **as small as ~500 KiB**.
+
+    ```bash
+    cargo build --profile minimal --no-default-features --features embedded
+    ```
+
+    <Warning>
+      Cross-compiling with TLS support is complex. The `embedded` feature set avoids TLS entirely. If you need encrypted transport on embedded targets, use the Noise Protocol instead.
+    </Warning>
+
+    ### Generate a Noise Protocol keypair
+
+    When using Noise Protocol transport, you can generate a keypair with:
+
+    ```bash
+    ./rathole --genkey
+    ```
+
+    This produces a keypair using X25519 by default. You can also specify the curve explicitly:
+
+    ```bash
+    ./rathole --genkey x25519
+    ./rathole --genkey x448
+    ```
+  </Tab>
+</Tabs>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get a working tunnel running using your newly installed binary.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration/overview">
+    Configure transport, tokens, UDP forwarding, and more.
+  </Card>
+</CardGroup>

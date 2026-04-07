@@ -1,0 +1,85 @@
+---
+title: 'Build from source'
+description: 'Compile rathole yourself to target specific platforms, enable custom feature sets, or produce optimized binaries.'
+---
+
+Building from source lets you control exactly which features are compiled in, target platforms that have no pre-built release, or pick up the latest unreleased changes.
+
+## Prerequisites
+
+- [Rust toolchain](https://rustup.rs/) (stable)
+- On Unix-like systems, OpenSSL development libraries are required for the default `native-tls` feature:
+  - Debian/Ubuntu: `sudo apt install libssl-dev pkg-config`
+  - Fedora/RHEL: `sudo dnf install openssl-devel`
+  - macOS (Homebrew): `brew install openssl`
+
+## Default build
+
+To build with all default features enabled:
+
+```sh
+cargo build --release
+```
+
+The compiled binary is placed at `target/release/rathole`.
+
+The default feature set includes: `server`, `client`, `native-tls`, `noise`, `websocket-native-tls`, and `hot-reload`.
+
+## Feature flags
+
+rathole uses Cargo feature flags to control which capabilities are compiled in. You can combine them freely, with one important exception noted below.
+
+| Feature | Description |
+|---|---|
+| `server` | Enable server mode |
+| `client` | Enable client mode |
+| `native-tls` | TLS support using the system's native TLS library |
+| `rustls` | TLS support using the pure-Rust rustls library |
+| `noise` | Noise Protocol encryption (no certificates needed) |
+| `websocket-native-tls` | WebSocket transport backed by native TLS |
+| `websocket-rustls` | WebSocket transport backed by rustls |
+| `hot-reload` | Watch config file and reload services without restart |
+| `embedded` | Preset for embedded devices: `server` + `client` + `hot-reload` + `noise` (no TLS) |
+
+<Warning>
+`native-tls` and `rustls` are mutually exclusive. Enabling both at the same time will cause a compile error. The same applies to `websocket-native-tls` and `websocket-rustls`.
+</Warning>
+
+## Building with specific features
+
+Use `--no-default-features` to opt out of the defaults, then list only what you need with `--features`.
+
+For example, to build a client-only binary with Noise Protocol support:
+
+```sh
+cargo build --release --no-default-features --features client,noise
+```
+
+To build a full binary using rustls instead of native TLS:
+
+```sh
+cargo build --release --no-default-features --features server,client,rustls,noise,websocket-rustls,hot-reload
+```
+
+<Note>
+The default build includes `native-tls` and `websocket-native-tls`. When switching to rustls, you must explicitly disable defaults and select the `rustls` variants.
+</Note>
+
+## Rustls vs native TLS
+
+Both provide TLS transport, but differ in how they link:
+
+- **`native-tls`** links against the system's TLS library (OpenSSL on Linux, Secure Transport on macOS, SChannel on Windows). Requires OpenSSL dev headers at compile time on Linux.
+- **`rustls`** is a pure-Rust implementation with no system dependency. Easier to cross-compile and suitable for static or musl builds.
+
+Choose `rustls` when cross-compiling to targets where linking against a system TLS library is difficult, or when building fully static binaries.
+
+## Embedded device preset
+
+The `embedded` feature preset bundles `server`, `client`, `hot-reload`, and `noise` — without any TLS dependency. This makes cross-compilation significantly easier since TLS libraries are notoriously difficult to cross-compile.
+
+```sh
+cargo build --release --no-default-features --features embedded
+```
+
+See [Minimal binary](/guides/minimal-binary) for further size reduction steps after building.

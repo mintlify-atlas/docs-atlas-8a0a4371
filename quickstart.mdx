@@ -1,80 +1,118 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart'
+description: 'Expose a service behind NAT to the internet in minutes using rathole.'
 ---
 
-## Get started in three steps
+This guide walks through exposing a home NAS's SSH service to the internet — one of the most common rathole use cases. By the end you will be able to `ssh` into your NAS from anywhere using your server's public IP.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- A server with a public IP address (the relay)
+- A device behind NAT with SSH running on port 22 (your NAS or home machine)
+- The `rathole` binary on both machines — see [Installation](/installation)
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Set up the tunnel
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Create the server configuration">
+    On the machine with a public IP, create a file named `server.toml`:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```toml
+    # server.toml
+    [server]
+    bind_addr = "0.0.0.0:2333" # port that rathole listens for clients
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    [server.services.my_nas_ssh]
+    token = "use_a_secret_that_only_you_know" # change to a strong, unique secret
+    bind_addr = "0.0.0.0:5202" # port that exposes my_nas_ssh to the internet
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    `bind_addr` under `[server]` is the control port — this is where clients connect. `bind_addr` under `[server.services.my_nas_ssh]` is the port users will connect to when they want to reach your NAS over SSH.
 
-### Step 3: Go live
+    <Warning>
+      Change the token to a long, random secret. Anyone who knows this token can authenticate as this service.
+    </Warning>
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="Start the server">
+    On your public server, run:
+
+    ```bash
+    ./rathole server.toml
+    ```
+
+    rathole detects that only a `[server]` block is present and starts in server mode automatically.
+  </Step>
+
+  <Step title="Create the client configuration">
+    On your NAS (the device behind NAT), create a file named `client.toml`:
+
+    ```toml
+    # client.toml
+    [client]
+    remote_addr = "myserver.com:2333" # address of your public server; port must match server.bind_addr
+
+    [client.services.my_nas_ssh]
+    token = "use_a_secret_that_only_you_know" # must match the token in server.toml
+    local_addr = "127.0.0.1:22" # the local SSH service to forward
+    ```
+
+    Replace `myserver.com` with your server's actual hostname or IP address.
+
+    <Note>
+      The service name `my_nas_ssh` must be identical on both the server and client sides. The token must also match exactly.
+    </Note>
+  </Step>
+
+  <Step title="Start the client">
+    On your NAS, run:
+
+    ```bash
+    ./rathole client.toml
+    ```
+
+    rathole detects that only a `[client]` block is present and starts in client mode automatically. The client will connect to your server on port `2333` and establish the tunnel.
+  </Step>
+
+  <Step title="Verify the tunnel">
+    From any machine on the internet, connect to your NAS over SSH using your server's address and the exposed port:
+
+    ```bash
+    ssh -p 5202 user@myserver.com
+    ```
+
+    Any traffic sent to `myserver.com:5202` is forwarded through the rathole tunnel to your NAS's port `22`.
+
+    <Tip>
+      If the connection is refused, check that both rathole processes are running and that port `5202` is open in your server's firewall.
+    </Tip>
+  </Step>
+</Steps>
+
+## Automatic mode detection vs. explicit flags
+
+rathole determines whether to run as a server or client based on the configuration file content. If only `[server]` is present, it runs as a server; if only `[client]` is present, it runs as a client.
+
+You can also combine both blocks into a single file and use explicit flags to select the mode:
+
+```bash
+./rathole --server config.toml   # force server mode
+./rathole --client config.toml   # force client mode
+```
+
+This is useful when managing both sides from the same configuration file.
+
+## Running as a background service
+
+For long-running deployments on Linux, rathole can be managed with systemd. See the [systemd examples](https://github.com/rapiz1/rathole/tree/main/examples/systemd) in the rathole repository for unit file templates.
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation" icon="download" href="/installation">
+    All installation methods: binary, Docker, and building from source.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration/overview">
+    Full reference for transports, tokens, UDP services, and more.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

@@ -1,0 +1,221 @@
+---
+title: "Server configuration"
+description: "Full reference for the [server] block, including listener settings, heartbeat interval, TLS certificates, and Noise Protocol keys."
+---
+
+The `[server]` block configures how rathole listens for incoming client connections and exposes tunneled services. Place this block in your config file and rathole will run in server mode automatically — or use `--server` when the file also contains a `[client]` block.
+
+## Minimal example
+
+```toml server.toml
+[server]
+bind_addr = "0.0.0.0:2333"
+
+[server.services.my_nas_ssh]
+token = "use_a_secret_that_only_you_know"
+bind_addr = "0.0.0.0:5202"
+```
+
+## `[server]` fields
+
+<ParamField path="bind_addr" type="string" required>
+  The address and port the server listens on for incoming client connections. Use `0.0.0.0` to accept connections on all interfaces.
+
+  ```toml
+  bind_addr = "0.0.0.0:2333"
+  ```
+</ParamField>
+
+<ParamField path="default_token" type="string">
+  A fallback token applied to any service that does not define its own `token`. When set, clients can connect to any such service using this token.
+
+  ```toml
+  default_token = "shared_secret_token"
+  ```
+</ParamField>
+
+<ParamField path="heartbeat_interval" type="integer" default="30">
+  Seconds between application-layer heartbeat packets sent to connected clients. Set to `0` to disable heartbeats entirely.
+
+  This value must be less than the client's `heartbeat_timeout`. The default of `30` works with the client default of `40`.
+
+  ```toml
+  heartbeat_interval = 30
+  ```
+
+  <Warning>
+    If you raise `heartbeat_interval` above the client's `heartbeat_timeout`, clients will disconnect before receiving a heartbeat. Keep at least a 10-second gap between the two values.
+  </Warning>
+</ParamField>
+
+## `[server.transport]` block
+
+The transport block is optional. It controls how the server accepts connections from clients at the network level.
+
+<ParamField path="type" type="string" default="tcp">
+  The transport type to use. Must match the client's transport type.
+
+  Accepted values: `"tcp"`, `"tls"`, `"noise"`, `"websocket"`.
+
+  ```toml
+  [server.transport]
+  type = "tls"
+  ```
+</ParamField>
+
+### `[server.transport.tcp]`
+
+TCP tuning options. These settings also apply to the underlying TCP connection when using `tls`, `noise`, or `websocket` transports.
+
+<ParamField path="nodelay" type="boolean" default="true">
+  Whether to enable `TCP_NODELAY` on accepted connections. Improves latency for interactive services at the cost of slightly lower bulk throughput.
+
+  ```toml
+  nodelay = true
+  ```
+</ParamField>
+
+<ParamField path="keepalive_secs" type="integer" default="20">
+  The `tcp_keepalive_time` value in seconds — idle time before keepalive probes start.
+
+  ```toml
+  keepalive_secs = 20
+  ```
+</ParamField>
+
+<ParamField path="keepalive_interval" type="integer" default="8">
+  The `tcp_keepalive_intvl` value in seconds — interval between successive keepalive probes.
+
+  ```toml
+  keepalive_interval = 8
+  ```
+</ParamField>
+
+### `[server.transport.tls]`
+
+Required when `type = "tls"`. The server needs a PKCS#12 archive containing its certificate and private key.
+
+<ParamField path="pkcs12" type="string" required>
+  Path to the PKCS#12 (`.pfx` or `.p12`) archive containing the server's certificate and private key.
+
+  ```toml
+  pkcs12 = "identity.pfx"
+  ```
+</ParamField>
+
+<ParamField path="pkcs12_password" type="string" required>
+  Password used to decrypt the PKCS#12 archive.
+
+  ```toml
+  pkcs12_password = "password"
+  ```
+
+  <Warning>
+    Avoid committing the PKCS#12 password to version control. Consider using an environment variable or a secrets manager to inject it at runtime.
+  </Warning>
+</ParamField>
+
+### `[server.transport.noise]`
+
+Optional configuration for the [Noise Protocol](https://noiseprotocol.org/) transport. Noise provides strong encryption without requiring TLS certificates.
+
+<ParamField path="pattern" type="string" default="Noise_NK_25519_ChaChaPoly_BLAKE2s">
+  The Noise protocol handshake pattern to use. Must match the client's pattern.
+
+  ```toml
+  pattern = "Noise_NK_25519_ChaChaPoly_BLAKE2s"
+  ```
+</ParamField>
+
+<ParamField path="local_private_key" type="string">
+  Base64-encoded private key for the server. Used in patterns where the server authenticates itself (e.g. `Noise_NK_*`).
+
+  ```toml
+  local_private_key = "key_encoded_in_base64"
+  ```
+</ParamField>
+
+<ParamField path="remote_public_key" type="string">
+  Base64-encoded public key of the connecting client. Required when using patterns that authenticate the client.
+
+  ```toml
+  remote_public_key = "key_encoded_in_base64"
+  ```
+</ParamField>
+
+### `[server.transport.websocket]`
+
+Required when `type = "websocket"`.
+
+<ParamField path="tls" type="boolean">
+  When `true`, the WebSocket server uses TLS (`wss://`). rathole will use the settings from `[server.transport.tls]` for the certificate.
+
+  ```toml
+  [server.transport.websocket]
+  tls = true
+  ```
+</ParamField>
+
+## Complete example
+
+```toml server.toml
+[server]
+bind_addr = "0.0.0.0:2333"
+default_token = "default_token_if_not_specify"
+heartbeat_interval = 30
+
+[server.transport]
+type = "tcp"
+
+[server.transport.tcp]
+nodelay = true
+keepalive_secs = 20
+keepalive_interval = 8
+
+[server.services.service1]
+type = "tcp"
+token = "whatever"
+bind_addr = "0.0.0.0:8081"
+nodelay = true
+
+[server.services.service2]
+bind_addr = "0.0.0.1:8082"
+```
+
+## TLS example
+
+```toml server-tls.toml
+[server]
+bind_addr = "0.0.0.0:2333"
+
+[server.transport]
+type = "tls"
+
+[server.transport.tls]
+pkcs12 = "identity.pfx"
+pkcs12_password = "password"
+
+[server.services.my_service]
+token = "secret"
+bind_addr = "0.0.0.0:8081"
+```
+
+## Noise Protocol example
+
+```toml server-noise.toml
+[server]
+bind_addr = "0.0.0.0:2333"
+
+[server.transport]
+type = "noise"
+
+[server.transport.noise]
+pattern = "Noise_NK_25519_ChaChaPoly_BLAKE2s"
+local_private_key = "key_encoded_in_base64"
+
+[server.services.my_service]
+token = "secret"
+bind_addr = "0.0.0.0:8081"
+```
+
+For service-specific fields (`type`, `token`, `bind_addr`, `nodelay`), see [Services configuration](/configuration/services).

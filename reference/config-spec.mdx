@@ -1,0 +1,353 @@
+---
+title: "Configuration specification"
+description: "Complete TOML configuration reference for rathole client and server."
+---
+
+rathole uses a single TOML file. The top-level blocks are `[client]` and `[server]`. A file may contain one or both blocks — when both are present, pass `--server` or `--client` on the command line to select which side to run.
+
+<Note>
+  Every service must have a `token`. Set a per-service `token`, or set `default_token` at the `[client]` or `[server]` level and let it propagate to all services that do not define their own.
+</Note>
+
+## Full example
+
+The following shows every supported field with its default or an illustrative value.
+
+```toml
+[client]
+remote_addr = "example.com:2333"
+default_token = "default_token_if_not_specify"
+heartbeat_timeout = 40
+retry_interval = 1
+
+[client.transport]
+type = "tcp"
+
+[client.transport.tcp]
+proxy = "socks5://user:passwd@127.0.0.1:1080"
+nodelay = true
+keepalive_secs = 20
+keepalive_interval = 8
+
+[client.transport.tls]
+trusted_root = "ca.pem"
+hostname = "example.com"
+
+[client.transport.noise]
+pattern = "Noise_NK_25519_ChaChaPoly_BLAKE2s"
+local_private_key = "key_encoded_in_base64"
+remote_public_key = "key_encoded_in_base64"
+
+[client.transport.websocket]
+tls = true
+
+[client.services.service1]
+type = "tcp"
+token = "whatever"
+local_addr = "127.0.0.1:1081"
+nodelay = true
+retry_interval = 1
+
+[client.services.service2]
+local_addr = "127.0.0.1:1082"
+
+[server]
+bind_addr = "0.0.0.0:2333"
+default_token = "default_token_if_not_specify"
+heartbeat_interval = 30
+
+[server.transport]
+type = "tcp"
+
+[server.transport.tcp]
+nodelay = true
+keepalive_secs = 20
+keepalive_interval = 8
+
+[server.transport.tls]
+pkcs12 = "identify.pfx"
+pkcs12_password = "password"
+
+[server.transport.noise]
+pattern = "Noise_NK_25519_ChaChaPoly_BLAKE2s"
+local_private_key = "key_encoded_in_base64"
+remote_public_key = "key_encoded_in_base64"
+
+[server.transport.websocket]
+tls = true
+
+[server.services.service1]
+type = "tcp"
+token = "whatever"
+bind_addr = "0.0.0.0:8081"
+nodelay = true
+
+[server.services.service2]
+bind_addr = "0.0.0.1:8082"
+```
+
+---
+
+## `[client]`
+
+<ParamField body="remote_addr" type="string" required>
+  The address and port of the server that the client connects to. Must match `server.bind_addr` on the server side.
+
+  ```toml
+  remote_addr = "myserver.com:2333"
+  ```
+</ParamField>
+
+<ParamField body="default_token" type="string">
+  Default authentication token used by any service that does not set its own `token`. If omitted, every service must define its own token.
+</ParamField>
+
+<ParamField body="heartbeat_timeout" type="integer">
+  How many seconds the client waits for a heartbeat from the server before considering the connection dead. Set to `0` to disable the application-layer heartbeat check entirely.
+
+  Must be greater than `server.heartbeat_interval`.
+
+  Default: `40`
+</ParamField>
+
+<ParamField body="retry_interval" type="integer">
+  Seconds between reconnection attempts when the connection to the server is lost. Can be overridden per service.
+
+  Default: `1`
+</ParamField>
+
+<ParamField body="prefer_ipv6" type="boolean">
+  When resolving hostnames, prefer IPv6 addresses over IPv4. Can be overridden per service.
+
+  Default: `false`
+</ParamField>
+
+---
+
+## `[client.transport]`
+
+<ParamField body="type" type="string">
+  The transport layer to use for all connections from this client to the server.
+
+  Accepted values: `"tcp"`, `"tls"`, `"noise"`, `"websocket"`
+
+  Default: `"tcp"`
+</ParamField>
+
+<Note>
+  The `[client.transport.tcp]` settings apply to all transport types because TLS, Noise, and WebSocket all run over TCP.
+</Note>
+
+### `[client.transport.tcp]`
+
+<ParamField body="nodelay" type="boolean">
+  Enable `TCP_NODELAY`. Improves latency at a slight cost to bandwidth. Recommended for interactive workloads such as remote desktop or game servers.
+
+  Default: `true`
+</ParamField>
+
+<ParamField body="keepalive_secs" type="integer">
+  Sets `tcp_keepalive_time` — the idle time in seconds before the OS sends TCP keepalive probes. Corresponds to the `tcp(7)` `TCP_KEEPIDLE` option.
+
+  Default: `20`
+</ParamField>
+
+<ParamField body="keepalive_interval" type="integer">
+  Sets `tcp_keepalive_intvl` — the interval in seconds between successive keepalive probes. Corresponds to the `tcp(7)` `TCP_KEEPINTVL` option.
+
+  Default: `8`
+</ParamField>
+
+<ParamField body="proxy" type="string">
+  URL of a proxy server to route the client-to-server connection through.
+
+  Supported schemes: `socks5://`, `http://`
+
+  ```toml
+  proxy = "socks5://user:passwd@127.0.0.1:1080"
+  ```
+</ParamField>
+
+### `[client.transport.tls]`
+
+Required when `client.transport.type = "tls"`.
+
+<ParamField body="trusted_root" type="string" required>
+  Path to the PEM-encoded CA certificate that signed the server's certificate. The client uses this to verify the server's identity.
+</ParamField>
+
+<ParamField body="hostname" type="string">
+  Hostname used for TLS SNI and certificate validation. If not set, rathole falls back to the hostname portion of `client.remote_addr`.
+</ParamField>
+
+### `[client.transport.noise]`
+
+Used when `client.transport.type = "noise"`. See the [Noise Protocol security page](/security/noise-protocol) for a full explanation.
+
+<ParamField body="pattern" type="string">
+  Noise Protocol handshake pattern. Must match the server's configured pattern.
+
+  Default: `"Noise_NK_25519_ChaChaPoly_BLAKE2s"`
+</ParamField>
+
+<ParamField body="local_private_key" type="string">
+  Base64-encoded local private key. If omitted, a new ephemeral keypair is generated at startup — suitable when the client does not need a stable identity.
+</ParamField>
+
+<ParamField body="remote_public_key" type="string">
+  Base64-encoded public key of the server. Required when using patterns that authenticate the responder (such as the default `Noise_NK_*` pattern).
+</ParamField>
+
+<Tip>
+  Generate a keypair with `./rathole --genkey` (or `./rathole --genkey x448` for the X448 curve).
+</Tip>
+
+### `[client.transport.websocket]`
+
+Required when `client.transport.type = "websocket"`.
+
+<ParamField body="tls" type="boolean" required>
+  When `true`, the WebSocket connection is secured with TLS using the settings from `[client.transport.tls]`.
+</ParamField>
+
+---
+
+## `[client.services.<name>]`
+
+Define one table per service that should be forwarded. The name (e.g., `my_nas_ssh`) must match the corresponding entry in the server configuration.
+
+<ParamField body="local_addr" type="string" required>
+  The address of the local service to forward, in `host:port` form.
+
+  ```toml
+  local_addr = "127.0.0.1:22"
+  ```
+</ParamField>
+
+<ParamField body="token" type="string">
+  Authentication token for this service. Required if `client.default_token` is not set.
+</ParamField>
+
+<ParamField body="type" type="string">
+  Protocol to forward.
+
+  Accepted values: `"tcp"`, `"udp"`
+
+  Default: `"tcp"`
+</ParamField>
+
+<ParamField body="nodelay" type="boolean">
+  Override the transport-level `nodelay` setting for this service only.
+</ParamField>
+
+<ParamField body="retry_interval" type="integer">
+  Override the client-level `retry_interval` for this service only. Inherits from `client.retry_interval` by default.
+</ParamField>
+
+<ParamField body="prefer_ipv6" type="boolean">
+  Override the client-level `prefer_ipv6` for this service only.
+
+  Default: `false`
+</ParamField>
+
+---
+
+## `[server]`
+
+<ParamField body="bind_addr" type="string" required>
+  The address and port that the server listens on for incoming client connections.
+
+  ```toml
+  bind_addr = "0.0.0.0:2333"
+  ```
+</ParamField>
+
+<ParamField body="default_token" type="string">
+  Default authentication token for any service that does not set its own `token`.
+</ParamField>
+
+<ParamField body="heartbeat_interval" type="integer">
+  How often, in seconds, the server sends application-layer heartbeat messages to connected clients. Set to `0` to disable sending heartbeats.
+
+  Default: `30`
+</ParamField>
+
+---
+
+## `[server.transport]`
+
+Identical structure to `[client.transport]`. Accepted values for `type`: `"tcp"`, `"tls"`, `"noise"`, `"websocket"`. Default: `"tcp"`.
+
+### `[server.transport.tcp]`
+
+Same fields as `[client.transport.tcp]`: `nodelay`, `keepalive_secs`, `keepalive_interval`. The `proxy` field is not applicable on the server side.
+
+### `[server.transport.tls]`
+
+Required when `server.transport.type = "tls"`.
+
+<ParamField body="pkcs12" type="string" required>
+  Path to the PKCS#12 (`.pfx`) file containing the server's certificate and private key.
+</ParamField>
+
+<ParamField body="pkcs12_password" type="string" required>
+  Password for the PKCS#12 file.
+</ParamField>
+
+<Warning>
+  `pkcs12_password` is masked in logs, but store your config file securely — it contains the plaintext password.
+</Warning>
+
+### `[server.transport.noise]`
+
+Same fields as `[client.transport.noise]`: `pattern`, `local_private_key`, `remote_public_key`.
+
+### `[server.transport.websocket]`
+
+Same as `[client.transport.websocket]`. When `tls = true`, uses the settings from `[server.transport.tls]`.
+
+---
+
+## `[server.services.<name>]`
+
+Define one table per service the server exposes. The name must match the corresponding `[client.services.<name>]` on the client side.
+
+<ParamField body="bind_addr" type="string" required>
+  The address and port where this service is exposed to visitors.
+
+  ```toml
+  bind_addr = "0.0.0.0:5202"
+  ```
+</ParamField>
+
+<ParamField body="token" type="string">
+  Authentication token for this service. Required if `server.default_token` is not set.
+</ParamField>
+
+<ParamField body="type" type="string">
+  Protocol to forward.
+
+  Accepted values: `"tcp"`, `"udp"`
+
+  Default: `"tcp"`
+</ParamField>
+
+<ParamField body="nodelay" type="boolean">
+  Override the transport-level `nodelay` setting for this service only.
+</ParamField>
+
+---
+
+## Default values summary
+
+| Field | Default |
+|---|---|
+| `client.heartbeat_timeout` | `40` seconds |
+| `client.retry_interval` | `1` second |
+| `server.heartbeat_interval` | `30` seconds |
+| `transport.type` | `"tcp"` |
+| `transport.tcp.nodelay` | `true` |
+| `transport.tcp.keepalive_secs` | `20` seconds |
+| `transport.tcp.keepalive_interval` | `8` seconds |
+| `services.<name>.type` | `"tcp"` |
+| `transport.noise.pattern` | `"Noise_NK_25519_ChaChaPoly_BLAKE2s"` |

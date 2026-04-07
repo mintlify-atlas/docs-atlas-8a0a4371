@@ -1,0 +1,179 @@
+---
+title: "TLS"
+description: "Secure rathole tunnels with TLS using PKCS#12 archives on the server and a trusted root CA certificate on the client."
+---
+
+TLS is the standard transport security option for rathole. It integrates with existing certificate infrastructure and supports both self-signed certificates and certificates issued by a trusted CA.
+
+Use TLS when:
+- You already manage certificates (e.g. Let's Encrypt, an internal CA)
+- You need compatibility with standard TLS tooling and workflows
+- Your organization requires certificate-based authentication
+
+If you prefer to avoid certificate management entirely, see the [Noise Protocol guide](/security/noise-protocol) instead.
+
+## Server setup
+
+The server requires a PKCS#12 archive (`.pfx` file) that bundles the server's private key and certificate chain.
+
+### Creating a PKCS#12 archive
+
+Use `openssl` to create the archive from an existing key and certificate:
+
+```bash
+openssl pkcs12 -export \
+  -out identity.pfx \
+  -inkey server.key \
+  -in server.crt \
+  -certfile ca_chain_certs.crt
+```
+
+Arguments:
+
+| Flag | Description |
+|------|-------------|
+| `-inkey` | Server private key |
+| `-in` | Server certificate |
+| `-certfile` | CA certificate (or chain) |
+| `-out` | Output PKCS#12 archive path |
+
+### Creating a self-signed certificate
+
+If you do not have an existing CA, you can generate one. The rathole repository includes a reference script at `examples/tls/create_self_signed_cert.sh`:
+
+```bash
+# Create CA
+openssl req -x509 \
+    -sha256 -days 356 \
+    -nodes \
+    -newkey rsa:2048 \
+    -subj "/CN=MyOwnCA/C=US/L=San Fransisco" \
+    -keyout rootCA.key -out rootCA.crt
+
+# Create server private key
+openssl genrsa -out server.key 2048
+
+# Create CSR config
+cat > csr.conf <<EOF
+[ req ]
+default_bits = 2048
+prompt = no
+default_md = sha256
+req_extensions = req_ext
+distinguished_name = dn
+
+[ dn ]
+C = US
+ST = California
+L = San Fransisco
+O = Someone
+OU = Someone
+CN = localhost
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = localhost
+EOF
+
+openssl req -new -key server.key -out server.csr -config csr.conf
+
+# Sign the certificate
+cat > cert.conf <<EOF
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+EOF
+
+openssl x509 -req \
+    -in server.csr \
+    -CA rootCA.crt -CAkey rootCA.key \
+    -out server.crt \
+    -days 365 \
+    -sha256 -extfile cert.conf
+
+# Package into PKCS#12
+openssl pkcs12 -export -out identity.pfx \
+    -inkey server.key -in server.crt -certfile rootCA.crt \
+    -passout pass:1234 -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES
+```
+
+### Server configuration
+
+```toml
+[server]
+bind_addr = "0.0.0.0:2333"
+default_token = "your-secret-token"
+
+[server.transport]
+type = "tls"
+[server.transport.tls]
+pkcs12 = "examples/tls/identity.pfx"
+pkcs12_password = "1234"
+
+[server.services.foo1]
+bind_addr = "0.0.0.0:5202"
+```
+
+## Client setup
+
+The client needs the CA certificate used to sign the server certificate, so it can verify the server's identity.
+
+```toml
+[client]
+remote_addr = "127.0.0.1:2333"
+default_token = "your-secret-token"
+
+[client.transport]
+type = "tls"
+[client.transport.tls]
+trusted_root = "examples/tls/rootCA.crt"
+hostname = "localhost"
+
+[client.services.foo1]
+local_addr = "127.0.0.1:80"
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `trusted_root` | Yes | Path to the root CA certificate PEM file used to verify the server. |
+| `hostname` | No | Hostname validated against the server's certificate. Falls back to `remote_addr` if omitted. Does not need to match `remote_addr`. |
+
+<Note>
+  The `hostname` field controls certificate validation only. It does not change the actual address rathole connects to — that is always determined by `remote_addr`.
+</Note>
+
+## Rustls support
+
+Rathole optionally supports [rustls](https://github.com/rustls/rustls) as an alternative to the default native-tls backend. Rustls must be enabled at compile time with the appropriate feature flags. Refer to the rathole build guide for details.
+
+When using rustls, the PKCS#12 archive must be created in legacy (OpenSSL 1.x) format. With OpenSSL 3, add the `-legacy` flag:
+
+```bash
+openssl pkcs12 -export \
+  -out identity.pfx \
+  -inkey server.key \
+  -in server.crt \
+  -certfile ca_chain_certs.crt \
+  -legacy
+```
+
+<Warning>
+  Omitting `-legacy` when using OpenSSL 3 with the rustls backend will cause rathole to fail to load the PKCS#12 archive at startup. The native-tls backend does not require this flag.
+</Warning>
+
+## Configuration reference
+
+### `[*.transport.tls]` fields
+
+| Field | Side | Required | Description |
+|-------|------|----------|-------------|
+| `pkcs12` | Server | Yes | Path to the PKCS#12 archive (`.pfx`) containing the server key and certificate. |
+| `pkcs12_password` | Server | Yes | Password used to decrypt the PKCS#12 archive. |
+| `trusted_root` | Client | Yes | Path to the root CA certificate PEM file. |
+| `hostname` | Client | No | Hostname to validate in the server's certificate. Defaults to `remote_addr`. |

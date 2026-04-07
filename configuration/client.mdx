@@ -1,0 +1,212 @@
+---
+title: "Client configuration"
+description: "Full reference for the [client] block, including connection settings, heartbeat tuning, and transport options."
+---
+
+The `[client]` block configures how rathole connects to a server and manages tunnels. Place this block in your config file and rathole will run in client mode automatically — or use `--client` when the file also contains a `[server]` block.
+
+## Minimal example
+
+```toml client.toml
+[client]
+remote_addr = "myserver.com:2333"
+
+[client.services.my_nas_ssh]
+token = "use_a_secret_that_only_you_know"
+local_addr = "127.0.0.1:22"
+```
+
+## `[client]` fields
+
+<ParamField path="remote_addr" type="string" required>
+  The address of the rathole server, including port. The port must match the server's `bind_addr` port.
+
+  ```toml
+  remote_addr = "example.com:2333"
+  ```
+</ParamField>
+
+<ParamField path="default_token" type="string">
+  A fallback token used for any service that does not define its own `token`. Useful when all services share the same secret.
+
+  ```toml
+  default_token = "shared_secret_token"
+  ```
+</ParamField>
+
+<ParamField path="heartbeat_timeout" type="integer" default="40">
+  Seconds to wait for a heartbeat response from the server before considering the connection dead. Set to `0` to disable the application-layer heartbeat check entirely.
+
+  This value must be greater than the server's `heartbeat_interval`. The default of `40` works with the server default of `30`.
+
+  ```toml
+  heartbeat_timeout = 40
+  ```
+
+  <Warning>
+    If you lower `heartbeat_timeout` below the server's `heartbeat_interval`, the client will disconnect prematurely. Keep at least a 10-second gap between the two values.
+  </Warning>
+</ParamField>
+
+<ParamField path="retry_interval" type="integer" default="1">
+  Seconds between reconnection attempts when the connection to the server is lost.
+
+  ```toml
+  retry_interval = 1
+  ```
+</ParamField>
+
+<ParamField path="prefer_ipv6" type="boolean" default="false">
+  When resolving hostnames for the `remote_addr` or service `local_addr`, prefer IPv6 addresses over IPv4. Can be overridden per service.
+
+  ```toml
+  prefer_ipv6 = false
+  ```
+</ParamField>
+
+## `[client.transport]` block
+
+The transport block is optional. It controls how the client connects to the server at the network level.
+
+<ParamField path="type" type="string" default="tcp">
+  The transport type to use. Must match the server's transport type.
+
+  Accepted values: `"tcp"`, `"tls"`, `"noise"`, `"websocket"`.
+
+  ```toml
+  [client.transport]
+  type = "noise"
+  ```
+</ParamField>
+
+### `[client.transport.tcp]`
+
+TCP tuning options. These settings also apply to the underlying TCP connection when using `tls`, `noise`, or `websocket` transports.
+
+<ParamField path="proxy" type="string">
+  A proxy URL to route the connection through before reaching the server. Supports `socks5://` and `http://` schemes, including authenticated proxies.
+
+  ```toml
+  proxy = "socks5://user:passwd@127.0.0.1:1080"
+  ```
+</ParamField>
+
+<ParamField path="nodelay" type="boolean" default="true">
+  Whether to enable `TCP_NODELAY`. When enabled, small packets are sent immediately rather than being batched, which improves latency for interactive applications (SSH, RDP, game servers) at the cost of slightly lower throughput.
+
+  ```toml
+  nodelay = true
+  ```
+
+  <Tip>
+    If you are tunneling bulk data transfers or are bandwidth-constrained, set `nodelay = false` to recover some throughput.
+  </Tip>
+</ParamField>
+
+<ParamField path="keepalive_secs" type="integer" default="20">
+  The `tcp_keepalive_time` value in seconds — how long the connection must be idle before keepalive probes begin.
+
+  ```toml
+  keepalive_secs = 20
+  ```
+</ParamField>
+
+<ParamField path="keepalive_interval" type="integer" default="8">
+  The `tcp_keepalive_intvl` value in seconds — the interval between successive keepalive probes.
+
+  ```toml
+  keepalive_interval = 8
+  ```
+</ParamField>
+
+### `[client.transport.tls]`
+
+Required when `type = "tls"`.
+
+<ParamField path="trusted_root" type="string" required>
+  Path to the PEM file of the certificate authority (CA) that signed the server's certificate. Used to verify the server's identity.
+
+  ```toml
+  trusted_root = "ca.pem"
+  ```
+</ParamField>
+
+<ParamField path="hostname" type="string">
+  The hostname used to validate the server's TLS certificate. If not set, rathole falls back to the hostname portion of `remote_addr`.
+
+  ```toml
+  hostname = "example.com"
+  ```
+</ParamField>
+
+### `[client.transport.noise]`
+
+Optional configuration for the [Noise Protocol](https://noiseprotocol.org/) transport. Noise provides encryption without requiring certificates.
+
+<ParamField path="pattern" type="string" default="Noise_NK_25519_ChaChaPoly_BLAKE2s">
+  The Noise protocol handshake pattern to use.
+
+  ```toml
+  pattern = "Noise_NK_25519_ChaChaPoly_BLAKE2s"
+  ```
+</ParamField>
+
+<ParamField path="local_private_key" type="string">
+  Base64-encoded private key for this client. Required when using a pattern that authenticates the initiator (e.g. `Noise_XX_*`).
+
+  ```toml
+  local_private_key = "key_encoded_in_base64"
+  ```
+</ParamField>
+
+<ParamField path="remote_public_key" type="string">
+  Base64-encoded public key of the server. Required for `Noise_NK_*` patterns, which authenticate the server but not the client.
+
+  ```toml
+  remote_public_key = "key_encoded_in_base64"
+  ```
+</ParamField>
+
+### `[client.transport.websocket]`
+
+Required when `type = "websocket"`.
+
+<ParamField path="tls" type="boolean">
+  When `true`, the WebSocket connection uses TLS (`wss://`). Rathole will use the settings from `[client.transport.tls]` to verify the server certificate.
+
+  ```toml
+  [client.transport.websocket]
+  tls = true
+  ```
+</ParamField>
+
+## Complete example
+
+```toml client.toml
+[client]
+remote_addr = "example.com:2333"
+default_token = "default_token_if_not_specify"
+heartbeat_timeout = 40
+retry_interval = 1
+
+[client.transport]
+type = "tcp"
+
+[client.transport.tcp]
+proxy = "socks5://user:passwd@127.0.0.1:1080"
+nodelay = true
+keepalive_secs = 20
+keepalive_interval = 8
+
+[client.services.service1]
+type = "tcp"
+token = "whatever"
+local_addr = "127.0.0.1:1081"
+nodelay = true
+retry_interval = 1
+
+[client.services.service2]
+local_addr = "127.0.0.1:1082"
+```
+
+For service-specific fields (`type`, `token`, `local_addr`, `nodelay`, `retry_interval`), see [Services configuration](/configuration/services).

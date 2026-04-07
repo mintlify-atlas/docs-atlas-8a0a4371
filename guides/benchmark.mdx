@@ -1,0 +1,155 @@
+---
+title: 'Benchmark'
+description: 'TCP/UDP bandwidth, HTTP throughput, HTTP latency, and memory usage comparisons between rathole and frp.'
+---
+
+This page covers benchmark results comparing rathole against [frp](https://github.com/fatedier/frp) 0.38.0 across TCP/UDP bandwidth, HTTP throughput, HTTP latency, and memory usage.
+
+<Warning>
+The benchmarks below are run on **local loopback**, making them CPU-bound rather than network-bound. This measures the maximum theoretical performance of each proxy's data path. In practice, if your network link is the bottleneck (which is true for most users), you will not see the same bandwidth multiplier in production. The primary real-world benefit of rathole's efficiency is **lower resource consumption** — less CPU, less memory — not necessarily proportionally faster throughput over a real network.
+</Warning>
+
+## Test environment
+
+| Property | Value |
+|---|---|
+| Date | 2021-12-28 |
+| Version | commit `1180c7e` |
+| OS | Arch Linux, kernel 5.15.11-arch2-1 |
+| CPU | Intel Xeon E5-2620 @ 2.00 GHz × 2 |
+| RAM | 16 GB |
+
+## TCP and UDP bandwidth
+
+TCP and UDP bandwidth was measured with [iperf3](https://iperf.fr/) 3.10.1.
+
+**rathole configuration:**
+
+```toml
+[client]
+remote_addr = "localhost:2333"
+default_token = "123"
+
+[client.services.bench-tcp]
+local_addr = "127.0.0.1:80"
+
+[client.services.bench-udp]
+type = "udp"
+local_addr = "127.0.0.1:80"
+
+[server]
+bind_addr = "0.0.0.0:2333"
+default_token = "123"
+
+[server.services.bench-tcp]
+bind_addr = "0.0.0.0:5202"
+
+[server.services.bench-udp]
+type = "udp"
+bind_addr = "0.0.0.0:5202"
+```
+
+**frp 0.38.0 configuration:**
+
+<CodeGroup>
+
+```ini frps.ini
+[common]
+bind_port = 7000
+authentication_method = token
+token = 1233
+```
+
+```ini frpc.ini
+[common]
+server_addr = 127.0.0.1
+server_port = 7000
+authentication_method = token
+token = 1233
+
+[bench-tcp]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 80
+remote_port = 5203
+
+[bench-udp]
+type = udp
+local_ip = 127.0.0.1
+local_port = 80
+remote_port = 5203
+```
+
+</CodeGroup>
+
+**iperf3 commands used:**
+
+```sh
+# Server
+sudo iperf3 -s -p 80
+
+# rathole
+iperf3 -c 127.0.0.1 -p 5202
+
+# frp
+iperf3 -c 127.0.0.1 -p 5203
+```
+
+rathole achieves significantly higher TCP and UDP throughput than frp on the same hardware.
+
+## HTTP throughput
+
+nginx/1.20.2 served the default test page on port 80. [vegeta](https://github.com/tsenart/vegeta) was used to generate load in open-loop mode (unlimited rate, fixed worker count).
+
+```sh
+# frp
+echo 'GET http://127.0.0.1:5203' | vegeta attack -rate 0 -duration 30s -max-workers 48
+
+# rathole
+echo 'GET http://127.0.0.1:5202' | vegeta attack -rate 0 -duration 30s -max-workers 48
+```
+
+<Note>
+`-max-workers` should be tuned to match your machine's core count for accurate results. The value `48` matches the test machine above.
+</Note>
+
+rathole handles significantly more HTTP requests per second than frp under the same load.
+
+## HTTP latency
+
+Latency was measured at fixed QPS levels using vegeta in rate-limited mode. All values are in milliseconds (ms).
+
+| QPS | rathole latency (ms) | frp latency (ms) |
+|-----|----------------------|------------------|
+| 1 | 2.113 | 2.55 |
+| 1000 | 1.723 | 1.742 |
+| 2000 | 1.845 | 1.749 |
+| 3000 | 2.064 | 2.011 |
+| 4000 | 2.569 | 7907 |
+
+At QPS from 1 to 3000, rathole and frp have nearly identical latency. At 4000 QPS, frp begins reporting large numbers of errors and latency climbs to near 8 seconds. rathole continues serving requests with low latency.
+
+See the [latency benchmark script](https://github.com/rapiz1/rathole/blob/main/benches/scripts/http/latency.sh) for the exact commands used.
+
+## Memory usage
+
+Memory was sampled while running `vegeta attack -duration 30s -rate 1000` through each proxy.
+
+rathole uses substantially less memory than frp under the same load.
+
+See the [memory benchmark script](https://github.com/rapiz1/rathole/blob/main/benches/scripts/mem/mem.sh) for methodology.
+
+## Summary
+
+| Metric | rathole vs frp |
+|---|---|
+| TCP bandwidth | rathole significantly higher |
+| UDP bandwidth | rathole significantly higher |
+| HTTP throughput | rathole significantly higher |
+| HTTP latency (≤ 3000 QPS) | Nearly identical |
+| HTTP latency (4000 QPS) | frp degrades sharply; rathole remains stable |
+| Memory usage | rathole uses much less |
+
+<Tip>
+The throughput gains shown here are most applicable when the **CPU** is the bottleneck — for example, on a low-powered server proxying many concurrent connections. If your bottleneck is network bandwidth (the common case for most home and cloud setups), the primary benefit you will see is lower memory and CPU usage, not a proportional increase in throughput.
+</Tip>

@@ -1,0 +1,149 @@
+---
+title: 'Docker'
+description: 'Run rathole as a server or client using the official Docker image.'
+---
+
+The official Docker image `rapiz1/rathole` is available on [Docker Hub](https://hub.docker.com/r/rapiz1/rathole) and provides a zero-dependency way to run rathole on any system with Docker installed.
+
+<Note>
+  The Docker image uses `gcr.io/distroless/cc-debian12` as its base and runs as
+  user `1000:1000` by default, providing a minimal and hardened runtime
+  environment.
+</Note>
+
+## Running with `docker run`
+
+rathole can automatically detect whether to run in server or client mode from your configuration file. You can also pass `--server` or `--client` explicitly when both blocks are present in the same config.
+
+<Tabs>
+  <Tab title="Server">
+    ```bash
+    docker run -d \
+      --network host \
+      -v /path/to/server.toml:/app/config.toml \
+      rapiz1/rathole /app/config.toml
+    ```
+  </Tab>
+  <Tab title="Client">
+    ```bash
+    docker run -d \
+      --network host \
+      -v /path/to/client.toml:/app/config.toml \
+      rapiz1/rathole /app/config.toml
+    ```
+  </Tab>
+  <Tab title="Explicit mode flags">
+    If your config file contains both `[server]` and `[client]` blocks, pass the
+    mode flag explicitly:
+
+    ```bash
+    # Run as server
+    docker run -d \
+      --network host \
+      -v /path/to/config.toml:/app/config.toml \
+      rapiz1/rathole --server /app/config.toml
+
+    # Run as client
+    docker run -d \
+      --network host \
+      -v /path/to/config.toml:/app/config.toml \
+      rapiz1/rathole --client /app/config.toml
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  `--network host` is required so that rathole can bind to the ports defined in
+  your configuration and forward traffic correctly. Without it, ports are
+  isolated inside the container network and will not be reachable from the
+  host.
+</Note>
+
+## Docker Compose
+
+Docker Compose is the recommended way to manage rathole containers, especially when running both a server and a client on the same machine or in the same stack.
+
+```yaml docker-compose.yml
+services:
+  rathole-server:
+    image: rapiz1/rathole
+    command: --server /app/config.toml
+    network_mode: host
+    volumes:
+      - ./server.toml:/app/config.toml
+    restart: unless-stopped
+
+  rathole-client:
+    image: rapiz1/rathole
+    command: --client /app/config.toml
+    network_mode: host
+    volumes:
+      - ./client.toml:/app/config.toml
+    restart: unless-stopped
+```
+
+Start the stack:
+
+```bash
+docker compose up -d
+```
+
+View logs:
+
+```bash
+docker compose logs -f rathole-server
+docker compose logs -f rathole-client
+```
+
+## Configuration file examples
+
+Mount a `server.toml` into the container at `/app/config.toml`. The path inside the container can be anything — just make sure the argument passed to `rathole` matches.
+
+<CodeGroup>
+
+```toml server.toml
+[server]
+bind_addr = "0.0.0.0:2333"
+
+[server.services.my_nas_ssh]
+token = "use_a_secret_that_only_you_know"
+bind_addr = "0.0.0.0:5202"
+```
+
+```toml client.toml
+[client]
+remote_addr = "myserver.com:2333"
+
+[client.services.my_nas_ssh]
+token = "use_a_secret_that_only_you_know"
+local_addr = "127.0.0.1:22"
+```
+
+</CodeGroup>
+
+## Auto-detection vs explicit mode flags
+
+rathole inspects the config file to determine its running mode:
+
+- If only a `[server]` block is present, it runs as a server automatically.
+- If only a `[client]` block is present, it runs as a client automatically.
+- If **both** blocks are present, you must pass `--server` or `--client` explicitly, otherwise rathole will exit with an error.
+
+<Tip>
+  Keep separate `server.toml` and `client.toml` files to avoid having to pass
+  explicit mode flags.
+</Tip>
+
+## Logging
+
+Control the log level by setting the `RUST_LOG` environment variable:
+
+```bash
+docker run -d \
+  --network host \
+  -e RUST_LOG=warn \
+  -v /path/to/server.toml:/app/config.toml \
+  rapiz1/rathole /app/config.toml
+```
+
+Available levels: `error`, `warn`, `info` (default), `debug`, `trace`.

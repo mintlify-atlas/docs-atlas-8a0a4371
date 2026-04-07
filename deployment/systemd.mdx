@@ -1,0 +1,241 @@
+---
+title: 'systemd'
+description: 'Run rathole as a persistent background service using systemd on Linux.'
+---
+
+systemd is the standard service manager on most Linux distributions. The rathole repository ships ready-to-use unit files in [`examples/systemd/`](https://github.com/rapiz1/rathole/tree/main/examples/systemd) that cover the most common deployment patterns.
+
+## Unit file naming conventions
+
+| File | Equivalent command |
+|---|---|
+| `ratholes.service` | `rathole --server` with a fixed config path |
+| `ratholec.service` | `rathole --client` with a fixed config path |
+| `ratholes@.service` | `rathole --server` — multiple instances via `@name` |
+| `ratholec@.service` | `rathole --client` — multiple instances via `@name` |
+| `rathole@.service` | `rathole` (auto-detect mode) — multiple instances via `@name` |
+
+The `@` template units let you manage several rathole instances from a single service file, one per config file.
+
+<Tip>
+  For security, store configuration files with permission `600` so that only the
+  owner can read them. This prevents other users on the system from accessing
+  your service tokens.
+
+  ```bash
+  chmod 600 /etc/rathole/app1.toml
+  ```
+</Tip>
+
+## Service file contents
+
+<Tabs>
+  <Tab title="ratholes@.service">
+    ```ini
+    [Unit]
+    Description=Rathole Server Service
+    After=network.target
+
+    [Service]
+    Type=simple
+    Restart=on-failure
+    RestartSec=5s
+    LimitNOFILE=1048576
+
+    # with root
+    ExecStart=/usr/bin/rathole -s /etc/rathole/%i.toml
+    # without root
+    # ExecStart=%h/.local/bin/rathole -s %h/.local/etc/rathole/%i.toml
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+  </Tab>
+  <Tab title="ratholec@.service">
+    ```ini
+    [Unit]
+    Description=Rathole Client Service
+    After=network.target
+
+    [Service]
+    Type=simple
+    Restart=on-failure
+    RestartSec=5s
+    LimitNOFILE=1048576
+
+    # with root
+    ExecStart=/usr/bin/rathole -c /etc/rathole/%i.toml
+    # without root
+    # ExecStart=%h/.local/bin/rathole -c %h/.local/etc/rathole/%i.toml
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+  </Tab>
+  <Tab title="rathole@.service">
+    ```ini
+    [Unit]
+    Description=Rathole Service
+    After=network.target
+
+    [Service]
+    Type=simple
+    Restart=on-failure
+    RestartSec=5s
+    LimitNOFILE=1048576
+
+    # with root
+    ExecStart=/usr/bin/rathole /etc/rathole/%i.toml
+    # without root
+    # ExecStart=%h/.local/bin/rathole %h/.local/etc/rathole/%i.toml
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+  </Tab>
+</Tabs>
+
+`%i` is replaced by systemd with the instance name (the part after `@`), so `ratholes@app1` will load `/etc/rathole/app1.toml`.
+
+---
+
+## Setup with root
+
+<Steps>
+  <Step title="Install the binary">
+    Download the binary from the [releases page](https://github.com/rapiz1/rathole/releases) and install it to `/usr/bin/`:
+
+    ```bash
+    sudo install -m 755 rathole /usr/bin/rathole
+    ```
+  </Step>
+  <Step title="Copy the unit file">
+    Copy the appropriate unit file from the repository to `/etc/systemd/system/`:
+
+    ```bash
+    sudo cp ratholes@.service /etc/systemd/system/
+    ```
+  </Step>
+  <Step title="Create the configuration file">
+    Create the config directory and place your configuration inside it. The filename (without `.toml`) becomes the instance name.
+
+    ```bash
+    sudo mkdir -p /etc/rathole
+    sudo nano /etc/rathole/app1.toml
+    sudo chmod 600 /etc/rathole/app1.toml
+    ```
+
+    Example `app1.toml` for a server:
+
+    ```toml
+    [server]
+    bind_addr = "0.0.0.0:2333"
+
+    [server.services.my_nas_ssh]
+    token = "use_a_secret_that_only_you_know"
+    bind_addr = "0.0.0.0:5202"
+    ```
+  </Step>
+  <Step title="Enable and start the service">
+    Reload systemd so it discovers the new unit, then enable and start the service in one command:
+
+    ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl enable ratholes@app1 --now
+    ```
+  </Step>
+  <Step title="Check the service status">
+    ```bash
+    sudo systemctl status ratholes@app1
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Setup without root
+
+<Steps>
+  <Step title="Install the binary">
+    ```bash
+    install -m 755 rathole ~/.local/bin/rathole
+    ```
+  </Step>
+  <Step title="Edit the unit file for user paths">
+    Open `ratholes@.service` and switch the `ExecStart` line to the user variant:
+
+    ```ini
+    # Comment out the root line:
+    # ExecStart=/usr/bin/rathole -s /etc/rathole/%i.toml
+
+    # Uncomment the user line:
+    ExecStart=%h/.local/bin/rathole -s %h/.local/etc/rathole/%i.toml
+    ```
+
+    `%h` expands to your home directory.
+  </Step>
+  <Step title="Copy the unit file">
+    ```bash
+    mkdir -p ~/.config/systemd/user
+    cp ratholes@.service ~/.config/systemd/user/
+    ```
+  </Step>
+  <Step title="Create the configuration file">
+    ```bash
+    mkdir -p ~/.local/etc/rathole
+    nano ~/.local/etc/rathole/app1.toml
+    chmod 600 ~/.local/etc/rathole/app1.toml
+    ```
+  </Step>
+  <Step title="Enable and start the service">
+    ```bash
+    systemctl --user daemon-reload
+    systemctl --user enable ratholes@app1 --now
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Common service commands
+
+```bash
+# Start the service
+sudo systemctl start ratholes@app1
+
+# Stop the service
+sudo systemctl stop ratholes@app1
+
+# Restart the service
+sudo systemctl restart ratholes@app1
+
+# Check status
+sudo systemctl status ratholes@app1
+
+# View live logs
+journalctl -u ratholes@app1 -f
+
+# Disable autostart
+sudo systemctl disable ratholes@app1
+```
+
+For user-mode services, replace `sudo systemctl` with `systemctl --user` throughout.
+
+---
+
+## Running multiple instances
+
+The template unit files make it easy to run several rathole instances side by side. Add a new config file and enable a new instance for it:
+
+```bash
+sudo cp /etc/rathole/app1.toml /etc/rathole/app2.toml
+# Edit app2.toml with a different bind_addr and token ...
+sudo systemctl enable ratholes@app2 --now
+```
+
+Each instance is managed independently:
+
+```bash
+sudo systemctl status ratholes@app1
+sudo systemctl status ratholes@app2
+```
